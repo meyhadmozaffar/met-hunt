@@ -521,7 +521,7 @@ async function joinTeam(name){
   const route=pickRoute(routeCounts());
   const id=newId();
   S.busy=true;S.msg.join=null;render();
-  try{await S.db.doc("teams/"+id).set({id,name,route,createdAt:Date.now(),startedAt:Date.now(),hints:{},roster:[me]});S.me=id;ls.set("mh_team",id);ls.set("mh_player",me);S.draft.teamName="";S.open=routeById[route].clues[0].id}catch(e){return fail(e,"join")}
+  try{await S.db.doc("teams/"+id).set({id,name,route,createdAt:Date.now(),startedAt:Date.now(),hints:{},roster:[me]});S.me=id;ls.set("mh_team",id);ls.set("mh_player",me);S.draft.teamName="";S.open=routeById[route].clues[0].id;S.tab="hunt";ls.set("mh_tab","hunt")}catch(e){return fail(e,"join")}
   S.busy=false;render();
 }
 async function joinExisting(tid){
