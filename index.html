@@ -407,6 +407,22 @@ function plistPanel(){
   ${S.msg.plist?`<p class="msg ${S.msg.plist[0]}">${esc(S.msg.plist[1])}</p>`:""}
   <p class="small muted">Teams on the list are created right away with routes in order. Names on the list are visible to anyone with the game link.</p></section>`;
 }
+function bonusPanel(t){
+  const r=routeById[t.route];if(!r)return "";
+  const done=r.clues.map((c,i)=>({c,i,s:S.subs[subId(t.id,c.id)]})).filter(x=>x.s&&x.s.status==="correct");
+  const open=done.filter(x=>!x.s.teamBonus);
+  if(!done.length)return `<div class="panel small" style="margin:6px 0 10px">No accepted answers yet. A photo bonus can be added once an answer is accepted.</div>`;
+  return `<div class="panel" style="margin:6px 0 10px;gap:8px"><p class="small muted">Team texted you a whole-team photo? Add +${TEAM_BONUS} to that stop.</p>
+  ${done.map(({c,i,s})=>`<div class="row" style="justify-content:space-between"><span class="small"><b>${c.id==="w0"?"Warm-up":"Stop "+i}</b> · ${esc(c.title)} · ${s.points} pts</span>
+    ${s.teamBonus?`<button class="btn ghost sm" data-bonus="${esc(s.id)}" data-v="remove">Bonus added · undo</button>`:`<button class="btn okb sm" data-bonus="${esc(s.id)}" data-v="add">+${TEAM_BONUS} photo</button>`}</div>`).join("")}
+  ${open.length>1?`<div class="row"><button class="btn sm" data-bonusall="${esc(t.id)}">Add +${TEAM_BONUS} to all ${open.length}</button></div>`:""}</div>`;
+}
+async function setBonus(id,add){
+  const s=S.subs[id];if(!s||s.status!=="correct"||!!s.teamBonus===add)return;
+  const patch={points:(s.points||0)+(add?TEAM_BONUS:-TEAM_BONUS),teamBonus:add};if(add)patch.teamPhoto=true;
+  S.subs[id]={...s,...patch};render();
+  try{await S.db.doc("subs/"+id).update(patch)}catch(e){fail(e,"judge")}
+}
 function viewLogin(){return `<section class="route"><h3>Organizer</h3><h2>Judge's desk</h2><p class="small muted">Enter your organizer PIN to review photos and manage teams on this device.</p></section>
   <form class="panel" id="pinForm"><label class="f" for="pin">Organizer PIN<input type="text" id="pin" inputmode="numeric" autocomplete="off"></label>
   <div class="row"><button class="btn" type="submit">Open judge's desk</button>${S.msg.pin?`<span class="msg bad">${esc(S.msg.pin)}</span>`:""}</div></form>`}
@@ -425,7 +441,8 @@ function viewJudge(){
   html+=`</section>`+plistPanel()+`<section style="display:flex;flex-direction:column"><h3>Teams (${Object.keys(S.teams).length})</h3>`;
   ranked().forEach(({t,s})=>{html+=`<div class="trow"><div style="min-width:0"><b>${esc(t.name)}</b> <span class="small muted">${s.score} pts · ${s.solved}/${s.total}</span></div>
     <div class="row"><select data-route="${esc(t.id)}" aria-label="Route for ${esc(t.name)}">${ROUTES.map((r,i)=>`<option value="${r.id}" ${r.id===t.route?"selected":""}>${i+1}. ${esc(r.name)}</option>`).join("")}</select>
-    <button class="btn badb sm" data-del="${esc(t.id)}">${S.confirm==="del:"+t.id?"Confirm delete":"Delete"}</button></div></div>`});
+    <button class="btn ghost sm" data-bonusopen="${esc(t.id)}" aria-expanded="${S.bonusOpen===t.id}">+25 photo</button>
+    <button class="btn badb sm" data-del="${esc(t.id)}">${S.confirm==="del:"+t.id?"Confirm delete":"Delete"}</button></div></div>${S.bonusOpen===t.id?bonusPanel(t):""}`});
   html+=`</section><section><h3>Answer key</h3>${ROUTES.map((r,i)=>`<details><summary>${i+1}. ${esc(r.name)}</summary><ol class="keylist">${r.clues.map(c=>`<li>${esc(key()[c.id]?.key)}</li>`).join("")}</ol></details>`).join("")}</section>`;
   return html;
 }
@@ -616,6 +633,9 @@ document.addEventListener("click",e=>{
   else if(ds.judge)judge(ds.judge,ds.v);
   else if(ds.logout){S.owner=false;ls.set("mh_judge",null);S.tab="hunt";render()}
   else if(ds.del)delTeam(ds.del);
+  else if(ds.bonusopen){S.bonusOpen=S.bonusOpen===ds.bonusopen?null:ds.bonusopen;render()}
+  else if(ds.bonus)setBonus(ds.bonus,ds.v==="add");
+  else if(ds.bonusall){const t=S.teams[ds.bonusall];(routeById[t.route]?.clues||[]).forEach(c=>{const q=S.subs[subId(t.id,c.id)];if(q&&q.status==="correct"&&!q.teamBonus)setBonus(q.id,true)})}
 });
 document.addEventListener("submit",async e=>{
   e.preventDefault();
