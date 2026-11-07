@@ -119,6 +119,7 @@ select{font:15px var(--sans);color:var(--fg);background:var(--raised);border:1px
 .rank{font-family:var(--serif);font-size:30px;line-height:1;text-align:center;font-variant-numeric:tabular-nums}
 .lrow:nth-child(1) .rank{color:var(--crimson-ink)}
 .lname{min-width:0}
+.lcap{font-family:var(--sans);font-weight:500;font-size:14px;color:var(--muted)}
 .lname b{font-family:var(--serif);font-size:18px;font-weight:700;display:block;overflow-wrap:anywhere}
 .lname .sub{display:flex;gap:6px 12px;flex-wrap:wrap;font-size:12.5px;color:var(--muted);margin-top:3px;align-items:center}
 .tier{font-size:10.5px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--crimson-ink)}
@@ -368,7 +369,7 @@ function viewBoard(){
   if(!list.length)html+=`<div class="empty"><b>No teams yet</b>Register the first team on the Hunt tab and it will show up here.</div>`;
   else{html+=`<div class="lb">`;list.forEach(({t,s},i)=>{const r=routeById[t.route];
     html+=`<div class="lrow ${t.id===S.me?"me":""}" style="${cv(r)}"><span class="rank">${i+1}</span>
-    <div class="lname"><b>${esc(t.name)}${t.id===S.me?' <span class="small muted" style="font-family:var(--sans);font-weight:500">(you)</span>':""}</b>
+    <div class="lname"><b>${esc(t.name)}${captainOf(t)?` <span class="lcap">(${esc(captainOf(t))})</span>`:""}${t.id===S.me?' <span class="small muted" style="font-family:var(--sans);font-weight:500">(you)</span>':""}</b>
     <div class="sub"><span class="tier">${tierFor(s.score)}</span><span class="rbadge" style="text-transform:none;letter-spacing:0;font-weight:500"><span class="dot"></span>${esc(r?.name||"")}</span><span>${s.solved}/${s.total} found${s.pending?` · ${s.pending} in review`:""}</span>${players(t)?`<span>${players(t)} players</span>`:""}</div></div>
     <div class="score"><b>${s.score}</b><span>${s.bonus?`incl. +${s.bonus} speed`:`${s.hints} hint${s.hints===1?"":"s"}`}</span></div>
     <div class="bar">${s.cells.map(c=>`<i class="${c}"></i>`).join("")}</div></div>`});html+=`</div>`}
