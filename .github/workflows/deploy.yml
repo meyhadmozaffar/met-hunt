@@ -1,0 +1,48 @@
+name: Deploy to Firebase
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check the deploy secrets are set
+        id: check
+        env:
+          KEY: ${{ secrets.FIREBASE_WEB_API_KEY }}
+          SA: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: |
+          if [ -n "$KEY" ] && [ -n "$SA" ]; then echo "ready=true" >> "$GITHUB_OUTPUT"
+          else echo "::warning::Skipping deploy: add the FIREBASE_WEB_API_KEY and FIREBASE_SERVICE_ACCOUNT repository secrets"; fi
+
+      - name: Add the web API key
+        if: steps.check.outputs.ready == 'true'
+        env:
+          KEY: ${{ secrets.FIREBASE_WEB_API_KEY }}
+        run: |
+          if [ -z "$KEY" ]; then echo "::error::Add the FIREBASE_WEB_API_KEY repository secret"; exit 1; fi
+          sed -i "s|PASTE_NEW_API_KEY|$KEY|" public/index.html
+          grep -q PASTE_NEW_API_KEY public/index.html && exit 1 || true
+
+      - name: Deploy the site and database rules
+        if: steps.check.outputs.ready == 'true'
+        env:
+          SA: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: |
+          if [ -z "$SA" ]; then echo "::error::Add the FIREBASE_SERVICE_ACCOUNT repository secret"; exit 1; fi
+          printf '%s' "$SA" > "$RUNNER_TEMP/sa.json"
+          export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/sa.json"
+          npx --yes firebase-tools@15.35.0 deploy --only hosting,firestore:rules --project met-scavenger-hunt --non-interactive
+          rm -f "$RUNNER_TEMP/sa.json"

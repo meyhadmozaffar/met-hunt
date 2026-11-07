@@ -1,0 +1,97 @@
+rules_version = '2';
+// Met Scavenger Hunt: players sign in (Google or email link) to play.
+// Organizers are listed in isAdmin(). To add one, add their email and publish.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+    function isAdmin() {
+      return signedIn() && request.auth.token.email_verified == true
+        && request.auth.token.email in ['meyhad.mozaffar@gmail.com'];
+    }
+    function hunt(h) { return get(/databases/$(database)/documents/hunts/$(h)).data; }
+    function huntLive(h) { return hunt(h).status == 'live'; }
+    function huntOpen(h) { return hunt(h).status in ['live', 'upcoming']; }
+    function isCaptain(h, t) {
+      return signedIn() && t is string
+        && get(/databases/$(database)/documents/hunts/$(h)/teams/$(t)).data.get('captainUid', null) == request.auth.uid;
+    }
+    function changed() { return request.resource.data.diff(resource.data).affectedKeys(); }
+
+    // Each player's own profile and the list of hunts they played.
+    match /users/{uid} {
+      allow read: if signedIn() && (request.auth.uid == uid || isAdmin());
+      allow write: if signedIn() && request.auth.uid == uid;
+      match /plays/{h} {
+        allow read: if signedIn() && (request.auth.uid == uid || isAdmin());
+        allow write: if signedIn() && request.auth.uid == uid;
+      }
+    }
+
+    match /hunts/{h} {
+      allow read: if signedIn();
+      allow write: if isAdmin();
+
+      // Team list uploaded by the organizer.
+      match /config/{d} {
+        allow read: if signedIn();
+        allow write: if isAdmin();
+      }
+
+      // One claim per name on a past hunt, so two accounts can't claim the same person.
+      match /claims/{k} {
+        allow read: if signedIn();
+        allow create: if signedIn() && request.resource.data.uid == request.auth.uid;
+        allow update, delete: if isAdmin();
+      }
+
+      match /teams/{t} {
+        allow read: if signedIn();
+        allow create: if isAdmin() || (signedIn() && huntOpen(h)
+          && request.resource.data.id == t
+          && request.resource.data.captainUid == request.auth.uid);
+        allow update: if isAdmin() || (signedIn() && huntOpen(h) && (
+          // anyone joining: roster and member list
+          changed().hasOnly(['roster', 'members', 'startedAt'])
+          // the listed captain taking a team the organizer made
+          || (changed().hasOnly(['roster', 'members', 'startedAt', 'captainUid'])
+              && resource.data.get('captainUid', null) == null
+              && request.resource.data.captainUid == request.auth.uid)
+          // the captain: team name and hints
+          || (resource.data.get('captainUid', null) == request.auth.uid
+              && changed().hasOnly(['name', 'hints', 'roster', 'members', 'startedAt']))
+        ));
+        allow delete: if isAdmin();
+      }
+
+      // Answers: the captain submits while the hunt is live; the organizer judges.
+      match /subs/{s} {
+        allow read: if signedIn();
+        allow create: if isAdmin() || (huntLive(h)
+          && isCaptain(h, request.resource.data.team)
+          && request.resource.data.id == s
+          && request.resource.data.get('points', 0) <= 100
+          && request.resource.data.get('teamBonus', false) == false);
+        allow update: if isAdmin() || (huntLive(h)
+          && isCaptain(h, resource.data.team)
+          && request.resource.data.team == resource.data.team
+          && request.resource.data.get('points', 0) <= 100
+          && request.resource.data.get('teamBonus', false) == false
+          && (resource.data.status != 'correct'
+              || (changed().hasOnly(['bonusPhoto', 'bonusAt'])
+                  && request.resource.data.bonusPhoto == 'pending')));
+        allow delete: if isAdmin();
+      }
+
+      match /photos/{p} {
+        allow read: if signedIn();
+        allow create, update: if isAdmin() || (huntLive(h) && isCaptain(h, request.resource.data.team));
+        allow delete: if isAdmin();
+      }
+    }
+
+    // The original November 7 data, kept for the organizer to import.
+    match /{c}/{d} {
+      allow read, write: if isAdmin();
+    }
+  }
+}
