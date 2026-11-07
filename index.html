@@ -244,7 +244,7 @@ function fmt(ms){const neg=ms<0;ms=Math.abs(ms);const m=Math.floor(ms/60000),s=M
 
 /* ---------- rendering ---------- */
 function renderTabs(){
-  const pend=Object.values(S.subs).filter(s=>s.status==="pending").length;
+  const pend=Object.values(S.subs).filter(s=>s.status==="pending"||s.bonusPhoto==="pending").length;
   const tabs=[["hunt","Hunt"],["board","Leaderboard"],["team","Team"]];if(S.owner)tabs.push(["judge","Judge"]);
   if(!tabs.find(t=>t[0]===S.tab))S.tab="hunt";
   $("#tabs").innerHTML=tabs.map(([id,l])=>`<button role="tab" aria-selected="${S.tab===id}" data-tab="${id}">${l}${id==="judge"&&pend?`<span class="count">${pend}</span>`:""}</button>`).join("");
@@ -345,7 +345,7 @@ function clueBody(t,c,s,n){
     html+=`<div class="row"><button class="btn ghost sm" data-hint="${c.id}" ${S.writeBlocked?"disabled":""}>${conf?`Tap again to use it (−${HINT_COST[n]} pts)`:`${n?"Reveal gallery number":"Reveal directions"} · −${HINT_COST[n]} pts`}</button>${conf?`<button class="btn ghost sm" data-cancelhint="1">Cancel</button>`:""}</div>`;
   }
   html+=`</div>`;
-  if(done)return html+`<p class="result msg ok">Solved for ${s.points} points with ${describe(s)}.</p>`;
+  if(done)return html+`<p class="result msg ok">Solved for ${s.points} points with ${describe(s)}.</p>`+bonusPhotoBox(t,c,s);
   if(s&&s.status==="pending")html+=`<p class="msg pend">${s.type==="photo"?`Your ${s.teamPhoto?"team photo":"photo"} is`:`Your answer (${describe(s)}) is`} waiting for the judge. You can send a different one below.</p>`;
   if(s&&s.status==="rejected")html+=`<p class="msg bad">The judge didn't accept ${describe(s)}. Look again and resubmit.</p>`;
   if(!amCaptain(t))return html+`<p class="small muted">Only your captain${captainOf(t)?`, ${esc(captainOf(t))},`:""} can submit answers. Found it? Tell them the answer.</p>`;
@@ -360,6 +360,32 @@ function clueBody(t,c,s,n){
   html+=`<div class="row"><button class="btn" data-submit="${c.id}" ${S.busy||S.writeBlocked?"disabled":""}>Submit answer · ${pts(n)+(type==="photo"&&d.tp?TEAM_BONUS:0)} pts</button></div>`;
   if(S.msg[c.id])html+=`<p class="msg ${S.msg[c.id][0]}">${esc(S.msg[c.id][1])}</p>`;
   return html+`</div>`;
+}
+function bonusPhotoBox(t,c,s){
+  if(s.teamBonus)return `<p class="small muted">Team photo bonus included.</p>`;
+  if(s.bonusPhoto==="pending")return `<p class="msg pend">Your team photo is waiting for the judge (+${TEAM_BONUS} once accepted).</p>`;
+  if(!amCaptain(t))return `<p class="small muted">Your captain can add a whole-team photo here for +${TEAM_BONUS}.</p>`;
+  const d=S.draft[c.id]||{};
+  return `<div class="answer">${s.bonusPhoto==="rejected"?`<p class="msg bad">The judge didn't accept the last team photo. Try another with everyone in it.</p>`:""}
+  <label class="f" for="bp-${c.id}">Add a whole-team photo with the object for +${TEAM_BONUS}<input type="file" id="bp-${c.id}" data-bphoto="${c.id}" accept="image/*" capture="environment"></label>
+  ${d.bphoto?`<img class="preview" src="${d.bphoto}" alt="Your team photo">`:""}
+  <div class="row"><button class="btn sm" data-bsubmit="${c.id}" ${!d.bphoto||S.busy||S.writeBlocked?"disabled":""}>Send team photo · +${TEAM_BONUS}</button></div>
+  ${S.msg["b"+c.id]?`<p class="msg ${S.msg["b"+c.id][0]}">${esc(S.msg["b"+c.id][1])}</p>`:""}</div>`;
+}
+async function sendBonusPhoto(cid){
+  const t=myTeam();if(!amCaptain(t))return;const id=subId(t.id,cid),s=S.subs[id],d=S.draft[cid]||{};
+  if(!s||s.status!=="correct"||s.teamBonus||!d.bphoto)return;
+  S.busy=true;render();
+  try{await S.db.doc("photos/"+id+"-bonus").set({id:id+"-bonus",team:t.id,clue:cid,img:d.bphoto});
+    await S.db.doc("subs/"+id).update({bonusPhoto:"pending",bonusAt:Date.now()});
+    S.subs[id]={...s,bonusPhoto:"pending"};S.draft[cid]={...d,bphoto:null};S.msg["b"+cid]=null}catch(e){return fail(e,"b"+cid)}
+  S.busy=false;render();
+}
+async function judgeBonus(id,ok){
+  const s=S.subs[id];if(!s)return;
+  const patch=ok?{bonusPhoto:"approved",...(s.teamBonus?{}:{teamBonus:true,teamPhoto:true,points:(s.points||0)+TEAM_BONUS})}:{bonusPhoto:"rejected"};
+  S.subs[id]={...s,...patch};render();
+  try{await S.db.doc("subs/"+id).update(patch);if(!ok)await S.db.doc("photos/"+id+"-bonus").delete()}catch(e){fail(e,"judge")}
 }
 function describe(s){return s.type==="photo"?(s.teamPhoto?"a team photo":"a photo"):s.type==="acc"?`accession no. ${s.text}`:`“${s.text}”`}
 
@@ -439,6 +465,14 @@ function viewJudge(){
     ${s.type==="photo"?(S.photos[s.id]?`<img src="${S.photos[s.id]}" alt="Submitted photo">`:`<p class="small muted">Loading photo…</p>`):`<p class="riddle">${esc(describe(s))}</p>`}
     ${s.teamPhoto?`<p class="tpflag">Team photo claimed: check that the whole team is in it</p>`:""}
     <div class="row">${s.teamPhoto?`<button class="btn okb sm" data-judge="${esc(s.id)}" data-v="okb">Accept with team bonus · +${pts(n)+TEAM_BONUS}</button>`:""}<button class="btn ${s.teamPhoto?"ghost":"okb"} sm" data-judge="${esc(s.id)}" data-v="ok">Accept${s.teamPhoto?" without bonus":""} · +${pts(n)}</button><button class="btn badb sm" data-judge="${esc(s.id)}" data-v="no">Reject</button></div></div>`});
+  const bpend=Object.values(S.subs).filter(s=>s.bonusPhoto==="pending").sort((a,b)=>(a.bonusAt||0)-(b.bonusAt||0));
+  if(bpend.length){html+=`<h3 style="margin-top:8px">Team photo bonus requests (${bpend.length})</h3>`;
+    bpend.forEach(s=>{const t=S.teams[s.team],c=clueById[s.clue];const pk=s.id+"-bonus";
+      html+=`<div class="jcard"><div class="row" style="justify-content:space-between"><b>${esc(t?.name||"Deleted team")}</b><span class="small muted">${new Date(s.bonusAt||s.at).toLocaleTimeString([],{hour:"numeric",minute:"2-digit"})}</span></div>
+      <p class="jkey">${s.clue==="w0"?"Warm-up":"Stop "+(routeById[t?.route]?.clues.findIndex(x=>x.id===s.clue)??"?")}: ${esc(c?.title)} · already solved for ${s.points} pts</p>
+      ${S.photos[pk]?`<img src="${S.photos[pk]}" alt="Team photo">`:`<p class="small muted">Loading photo…</p>`}
+      <p class="tpflag">Check that the whole team is in the photo with the object</p>
+      <div class="row"><button class="btn okb sm" data-bjudge="${esc(s.id)}" data-v="ok">Accept · +${TEAM_BONUS}</button><button class="btn badb sm" data-bjudge="${esc(s.id)}" data-v="no">Reject</button></div></div>`})}
   html+=`</section>`+plistPanel()+`<section style="display:flex;flex-direction:column"><h3>Teams (${Object.keys(S.teams).length})</h3>`;
   ranked().forEach(({t,s})=>{html+=`<div class="trow"><div style="min-width:0"><b>${esc(t.name)}</b> <span class="small muted">${s.score} pts · ${s.solved}/${s.total}</span></div>
     <div class="row"><select data-route="${esc(t.id)}" aria-label="Route for ${esc(t.name)}">${ROUTES.map((r,i)=>`<option value="${r.id}" ${r.id===t.route?"selected":""}>${i+1}. ${esc(r.name)}</option>`).join("")}</select>
@@ -603,7 +637,10 @@ function shrink(file){return new Promise((res,rej)=>{const url=URL.createObjectU
 async function loadPhotos(){
   for(const s of Object.values(S.subs)){if(s.status==="pending"&&s.type==="photo"&&!(s.id in S.photos)){S.photos[s.id]="";
     try{const snap=await S.db.doc("photos/"+s.id).get();S.photos[s.id]=snap.exists?snap.data().img:""}catch(e){}
-    if(S.photos[s.id])render()}}
+    if(S.photos[s.id])render()}
+    const pk=s.id+"-bonus";if(s.bonusPhoto==="pending"&&!(pk in S.photos)){S.photos[pk]="";
+    try{const snap=await S.db.doc("photos/"+pk).get();S.photos[pk]=snap.exists?snap.data().img:""}catch(e){}
+    if(S.photos[pk])render()}}
 }
 async function judge(id,v){const ok=v!=="no";
   const s=S.subs[id];if(!s)return;const t=S.teams[s.team];const n=hintsUsed(t,s.clue);
@@ -614,7 +651,7 @@ async function judge(id,v){const ok=v!=="no";
 async function delTeam(tid){
   if(S.confirm!=="del:"+tid){S.confirm="del:"+tid;return render()}
   S.confirm=null;
-  try{for(const s of Object.values(S.subs).filter(s=>s.team===tid)){await S.db.doc("subs/"+s.id).delete();if(s.type==="photo")await S.db.doc("photos/"+s.id).delete()}
+  try{for(const s of Object.values(S.subs).filter(s=>s.team===tid)){await S.db.doc("subs/"+s.id).delete();if(s.type==="photo")await S.db.doc("photos/"+s.id).delete();if(s.bonusPhoto)await S.db.doc("photos/"+s.id+"-bonus").delete()}
     await S.db.doc("teams/"+tid).delete()}catch(e){fail(e,"judge")}
 }
 
@@ -634,6 +671,8 @@ document.addEventListener("click",e=>{
   else if(ds.judge)judge(ds.judge,ds.v);
   else if(ds.logout){S.owner=false;ls.set("mh_judge",null);S.tab="hunt";render()}
   else if(ds.del)delTeam(ds.del);
+  else if(ds.bsubmit)sendBonusPhoto(ds.bsubmit);
+  else if(ds.bjudge)judgeBonus(ds.bjudge,ds.v==="ok");
   else if(ds.bonusopen){S.bonusOpen=S.bonusOpen===ds.bonusopen?null:ds.bonusopen;render()}
   else if(ds.bonus)setBonus(ds.bonus,ds.v==="add");
   else if(ds.bonusall){const t=S.teams[ds.bonusall];(routeById[t.route]?.clues||[]).forEach(c=>{const q=S.subs[subId(t.id,c.id)];if(q&&q.status==="correct"&&!q.teamBonus)setBonus(q.id,true)})}
@@ -673,6 +712,9 @@ document.addEventListener("change",async e=>{
     try{S.plistDraft=await readListFile(f);S.plistText="";S.msg.plist=null}catch(err){S.plistDraft=null;S.msg.plist=["bad","That file couldn't be read. Save it as .xlsx or .csv and try again, or paste the rows instead."]}
     return render()}
   if(el.dataset.tp){const c=el.dataset.tp;S.draft[c]={...(S.draft[c]||{}),tp:el.checked};el.blur();render();return}
+  if(el.dataset.bphoto){const c=el.dataset.bphoto,f=el.files&&el.files[0];el.blur();if(!f)return;
+    try{const d=await shrink(f);S.draft[c]={...(S.draft[c]||{}),bphoto:d};S.msg["b"+c]=null}catch(err){S.msg["b"+c]=["bad","That file couldn't be read as an image. Try another photo."]}
+    return render()}
   if(el.dataset.photo){const c=el.dataset.photo,f=el.files&&el.files[0];if(!f)return;
     try{const d=await shrink(f);S.draft[c]={...(S.draft[c]||{}),photo:d};S.msg[c]=null}catch(err){S.msg[c]=["bad","That file couldn't be read as an image. Try another photo."]}
     el.blur();render()}
