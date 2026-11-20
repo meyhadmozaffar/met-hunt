@@ -195,6 +195,25 @@ input[type=email],input[type=date]{font:16px/1.3 var(--sans);color:var(--fg);bac
 .pgrid img{width:100%;aspect-ratio:1;object-fit:cover;border-radius:3px;display:block}
 .pgrid figcaption{font-size:11px;color:var(--muted);margin-top:3px;line-height:1.3}
 @media (max-width:520px){.tiles{grid-template-columns:repeat(2,1fr)}}
+.builder{gap:16px}
+.lbl{margin:0 0 8px;font:600 12px/1 var(--sans);letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+.opts{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.opt{display:flex;flex-direction:column;gap:4px;text-align:left;padding:12px;border:1px solid var(--line);border-radius:4px;background:var(--raised);color:var(--fg);font:inherit;cursor:pointer}
+.opt b{font-size:15px}.opt span{font-size:12.5px;line-height:1.35;color:var(--muted)}
+.opt[aria-pressed="true"]{border-color:var(--crimson);box-shadow:inset 0 0 0 1px var(--crimson)}
+.lens{display:flex;flex-wrap:wrap;gap:6px}
+.len{padding:9px 12px;border:1px solid var(--line);border-radius:999px;background:var(--raised);color:var(--fg);font:600 14px/1 var(--sans);cursor:pointer;font-variant-numeric:tabular-nums}
+.len[aria-pressed="true"]{background:var(--crimson);border-color:var(--crimson);color:#fff}
+.plan{background:var(--raised);border:1px solid var(--line);border-radius:4px;padding:12px;display:flex;flex-direction:column;gap:6px}
+.plan p{margin:0}
+button.huntcard{font:inherit;text-align:left;cursor:pointer;width:100%}
+.huntcard.museum[aria-pressed="true"]{border-color:var(--crimson)}
+.qtop{display:flex;justify-content:space-between;align-items:baseline;gap:12px}
+.qclock{font:600 24px/1 var(--sans);font-variant-numeric:tabular-nums;color:var(--crimson-ink);white-space:nowrap}
+.qclock.done{font-size:15px;color:var(--muted)}
+.banner.ok{background:var(--ok-bg);color:var(--ok);border-color:transparent}
+.banner.ok a{color:inherit}
+@media (max-width:520px){.opts{grid-template-columns:1fr}.opt{flex-direction:row;align-items:baseline;gap:10px}.opt b{min-width:64px}}
 .check{display:flex;gap:10px;align-items:flex-start;font-size:14px;padding:10px 12px;background:var(--surface);border-radius:3px;cursor:pointer}
 .check input{width:18px;height:18px;margin:1px 0 0;accent-color:var(--crimson);flex:none}
 .check b{color:var(--crimson-ink)}
@@ -255,7 +274,7 @@ const clueById={};ROUTES.forEach(r=>r.clues.forEach((c,i)=>clueById[c.id]={...c,
 const S={db:null,user:null,owner:false,teams:{},subs:{},loaded:{teams:false,subs:false},err:null,
   writeBlocked:false,tab:"hunt",me:null,open:null,ans:{},draft:{},msg:{},confirm:null,busy:false,photos:{},pending:false};
 const ls={get(k){try{return localStorage.getItem(k)}catch(e){return null}},set(k,v){try{v==null?localStorage.removeItem(k):localStorage.setItem(k,v)}catch(e){}}};
-S.tab=ls.get("mh_tab")||"hunt";
+S.tab=ls.get("mh_tab")||"hunt";S.tries={};
 
 const $=s=>document.querySelector(s);
 const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
@@ -266,7 +285,7 @@ async function h(s){try{const b=await crypto.subtle.digest("SHA-256",new TextEnc
 let KEY=null;function key(){if(!KEY){try{KEY=JSON.parse(decodeURIComponent(escape(atob(KEY_B64.split("").reverse().join("")))))}catch(e){KEY={}}}return KEY}
 
 const hintsUsed=(t,cid)=>(t&&t.hints&&t.hints[cid])||0;
-const pts=n=>BASE-HINT_COST.slice(0,n).reduce((a,b)=>a+b,0);
+const pts=n=>BASE-hintCosts().slice(0,n).reduce((a,b)=>a+b,0);
 const subId=(tid,cid)=>tid+"--"+cid;
 function tierFor(score){const p=score/MAX;return TIERS.find(t=>p>=t[1])[0]}
 function stats(t,SUBS=S.subs){
@@ -292,7 +311,7 @@ function renderTabs(){
   if(S.view!=="hunt"){const n=[["home","#","Hunts"],["profile","#profile","Profile"]];if(isAdmin())n.push(["admin","#admin","Organizer"]);
     $("#tabs").innerHTML=n.map(([id,href,l])=>`<a role="tab" aria-selected="${S.view===id}" href="${href}">${l}</a>`).join("");return}
   const pend=Object.values(S.subs).filter(s=>s.status==="pending"||s.bonusPhoto==="pending").length;
-  const tabs=[["hunt","Hunt"],["board","Leaderboard"],["team","Team"]];if(isAdmin())tabs.push(["judge","Judge"]);
+  const tabs=isQuest()?[["hunt","Hunt"],["team","Team"]]:[["hunt","Hunt"],["board","Leaderboard"],["team","Team"]];if(isAdmin()&&!isQuest())tabs.push(["judge","Judge"]);
   if(!tabs.find(t=>t[0]===S.tab))S.tab="hunt";
   $("#tabs").innerHTML=`<a class="back" href="#" aria-label="All hunts">←</a>`+tabs.map(([id,l])=>`<button role="tab" aria-selected="${S.tab===id}" data-tab="${id}">${l}${id==="judge"&&pend?`<span class="count">${pend}</span>`:""}</button>`).join("");
 }
@@ -311,12 +330,14 @@ function render(){
   if(!S.authReady)html+=`<div class="empty"><b>Loading…</b></div>`;
   else if(!S.user)html+=viewSignIn();
   else if(S.view==="profile")html+=viewProfile();
+  else if(S.view==="museum")html+=viewMuseums();
   else if(S.view==="admin")html+=isAdmin()?viewAdmin():viewHome();
   else if(S.view==="home")html+=viewHome();
   else{
     const h=huntInfo();S.writeBlocked=huntStatus()==="ended";
-    html+=`<p class="small muted huntname">${esc(h.name||S.hunt)}${h.date?` · ${esc(fmtDate(h.date))}`:""}</p>`;
-    if(huntStatus()==="ended")html+=`<div class="banner">This hunt has ended. The leaderboard shows the final results.</div>`;
+    if(!isQuest())html+=`<p class="small muted huntname">${esc(h.name||S.hunt)}${h.date?` · ${esc(fmtDate(h.date))}`:""}</p>`;
+    if(huntStatus()==="ended"&&isQuest()&&S.loaded.teams&&S.loaded.subs&&myTeam())html+=questSummary();
+    else if(huntStatus()==="ended"&&!isQuest())html+=`<div class="banner">This hunt has ended. The leaderboard shows the final results.</div>`;
     else if(huntStatus()==="upcoming")html+=`<div class="banner">This hunt hasn't started yet. Join your team now; answers open when the organizer starts the hunt.</div>`;
     if(!(S.loaded.teams&&S.loaded.subs))html+=`<div class="empty"><b>Loading teams…</b>Fetching the latest scores.</div>`;
     else html+=({hunt:viewHunt,board:viewBoard,team:viewTeam,judge:isAdmin()?viewJudge:viewHunt}[S.tab]||viewHunt)();
@@ -345,6 +366,7 @@ function findPanel(){
   ${res}${S.msg.rejoin&&f?`<p class="msg bad">${esc(S.msg.rejoin)}</p>`:""}</form>`;
 }
 function viewJoin(){
+  if(isQuest())return questJoin();
   const others=Object.values(S.teams).sort((a,b)=>a.name.localeCompare(b.name));
   return `<section class="route"><h3>Before you start</h3><h2>Register your team</h2>
   <p class="start">Every team starts in the <b>Charles Engelhard Court</b>, the glass-roofed sculpture court in the American Wing on Floor 1, answers a warm-up question together, then follows its own route of 10 stops in 10 collections on both floors.</p></section>
@@ -363,6 +385,7 @@ function viewJoin(){
   ${rulesHtml()}`;
 }
 function rulesHtml(){
+  if(isQuest())return questRules();
   return `<section class="rules"><h3>How scoring works</h3>
   <p>Each route has a warm-up and 10 stops, each worth <b>${BASE} points</b>. Every stop asks a question. Type your <b>written answer</b>, or send a <b>photo</b> of the object and its label.</p>
   <p>Written answers that match are scored instantly. Photos and other answers go to the judge for review.</p>
@@ -374,6 +397,7 @@ function viewHunt(){
   const t=myTeam();if(!t)return viewJoin();
   const r=routeById[t.route];
   if(!r)return retired(t);
+  if(r.quest)return questView(t,r);
   let html=`<section class="route" style="${cv(r)}">
     <span class="rbadge"><span class="dot"></span>Route ${ROUTES.indexOf(r)+1} of ${ROUTES.length} · Floors 1 and 2</span>
     <h2>${esc(r.name)}</h2>
@@ -391,21 +415,22 @@ function viewHunt(){
 }
 function clueBody(t,c,s,n){
   let html=`<p class="riddle">${esc(c.riddle)}</p>${c.q?`<p class="q">${esc(c.q)}</p>`:""}<div class="hints">`;
-  c.hints.forEach((hTxt,i)=>{if(i<n)html+=`<p class="hint"><b>${i?"Gallery":"Directions"}</b>${esc(hTxt)}</p>`});
+  const HL=clueHints(c);HL.forEach(([lb,hTxt],i)=>{if(i<n)html+=`<p class="hint"><b>${esc(lb)}</b>${esc(hTxt)}</p>`});
   const done=s&&s.status==="correct";
-  if(n<c.hints.length&&!done&&!amCaptain(t)){html+=`<p class="small muted">Need a hint? Only your captain${captainOf(t)?`, ${esc(captainOf(t))},`:""} can use hints.</p>`}
-  else if(n<c.hints.length&&!done&&huntStatus()==="live"){
+  if(n<HL.length&&!done&&!(s&&s.status==="skipped")&&!amCaptain(t)){html+=`<p class="small muted">Need a hint? Only your captain${captainOf(t)?`, ${esc(captainOf(t))},`:""} can use hints.</p>`}
+  else if(n<HL.length&&!done&&!(s&&s.status==="skipped")&&huntStatus()==="live"){
     const conf=S.confirm===c.id+":"+n;
-    html+=`<div class="row"><button class="btn ghost sm" data-hint="${c.id}" ${S.writeBlocked?"disabled":""}>${conf?`Tap again to use it (−${HINT_COST[n]} pts)`:`${n?"Reveal gallery number":"Reveal directions"} · −${HINT_COST[n]} pts`}</button>${conf?`<button class="btn ghost sm" data-cancelhint="1">Cancel</button>`:""}</div>`;
+    html+=`<div class="row"><button class="btn ghost sm" data-hint="${c.id}" ${S.writeBlocked?"disabled":""}>${conf?`Tap again to use it (−${hintCosts()[n]} pts)`:`${hintLabel(n)} · −${hintCosts()[n]} pts`}</button>${conf?`<button class="btn ghost sm" data-cancelhint="1">Cancel</button>`:""}</div>`;
   }
   html+=`</div>`;
   if(done)return html+`<p class="result msg ok">Solved for ${s.points} points with ${describe(s)}.</p>`+bonusPhotoBox(t,c,s);
+  if(s&&s.status==="skipped")return html+`<p class="result msg">Skipped. The answer was <b>${esc(answerOf(c))}</b>.</p>`;
   if(s&&s.status==="pending")html+=`<p class="msg pend">${s.type==="photo"?`Your ${s.teamPhoto?"team photo":"photo"} is`:`Your answer (${describe(s)}) is`} waiting for the judge. You can send a different one below.</p>`;
   if(s&&s.status==="rejected")html+=`<p class="msg bad">The judge didn't accept ${describe(s)}. Look again and resubmit.</p>`;
   if(huntStatus()!=="live")return html+`<p class="small muted">${huntStatus()==="ended"?"This hunt has ended.":"Answers open when the hunt starts."}</p>`;
   if(!amCaptain(t))return html+`<p class="small muted">Only your captain${captainOf(t)?`, ${esc(captainOf(t))},`:""} can submit answers. Found it? Tell them the answer.</p>`;
-  const type=S.ans[c.id]||"text";const d=S.draft[c.id]||{};
-  html+=`<div class="answer"><div class="seg" role="group" aria-label="Answer type">
+  const type=isQuest()?"text":(S.ans[c.id]||"text");const d=S.draft[c.id]||{};
+  html+=isQuest()?`<div class="answer">`:`<div class="answer"><div class="seg" role="group" aria-label="Answer type">
     <button data-type="text" data-c="${c.id}" aria-pressed="${type==="text"}">Written</button>
     <button data-type="photo" data-c="${c.id}" aria-pressed="${type==="photo"}">Photo</button></div>`;
   if(type==="acc")html+=`<label class="f" for="in-${c.id}">Accession number from the wall label<input type="text" class="mono" id="in-${c.id}" data-draft="${c.id}" inputmode="text" autocomplete="off" placeholder="e.g. 12.34.5" value="${esc(d.acc||"")}"></label>`;
@@ -413,10 +438,12 @@ function clueBody(t,c,s,n){
   else html+=`<label class="f" for="in-${c.id}">Photograph the object with its label in view<input type="file" id="in-${c.id}" data-photo="${c.id}" accept="image/*" capture="environment"></label>${d.photo?`<img class="preview" src="${d.photo}" alt="Your photo">`:""}
     <label class="check" for="tp-${c.id}"><input type="checkbox" id="tp-${c.id}" data-tp="${c.id}" ${d.tp?"checked":""}><span>Our whole team is in this photo with the object. <b>+${TEAM_BONUS} bonus</b> once the judge confirms.</span></label>`;
   html+=`<div class="row"><button class="btn" data-submit="${c.id}" ${S.busy||S.writeBlocked?"disabled":""}>Submit answer · ${pts(n)+(type==="photo"&&d.tp?TEAM_BONUS:0)} pts</button></div>`;
+  if(isQuest()&&(S.tries[c.id]||0)>0)html+=`<div class="row"><button class="btn ghost sm" data-reveal="${c.id}">${S.confirm==="rev:"+c.id?"Tap again to skip and see the answer":"Skip and show the answer · 0 pts"}</button>${S.confirm==="rev:"+c.id?`<button class="btn ghost sm" data-cancelhint="1">Cancel</button>`:""}</div>`;
   if(S.msg[c.id])html+=`<p class="msg ${S.msg[c.id][0]}">${esc(S.msg[c.id][1])}</p>`;
   return html+`</div>`;
 }
 function bonusPhotoBox(t,c,s){
+  if(isQuest())return questPhotoBox(t,c,s);
   if(s.teamBonus)return `<p class="small muted">Team photo bonus included.</p>`;
   if(s.bonusPhoto==="pending")return `<p class="msg pend">Your team photo is waiting for the judge (+${TEAM_BONUS} once accepted).</p>`;
   if(!amCaptain(t))return `<p class="small muted">Your captain can add a whole-team photo here for +${TEAM_BONUS}.</p>`;
@@ -432,8 +459,8 @@ async function sendBonusPhoto(cid){
   if(!s||s.status!=="correct"||s.teamBonus||!d.bphoto)return;
   S.busy=true;render();
   try{await HD.doc("photos/"+id+"-bonus").set({id:id+"-bonus",team:t.id,clue:cid,img:d.bphoto});
-    await HD.doc("subs/"+id).update({bonusPhoto:"pending",bonusAt:Date.now()});
-    S.subs[id]={...s,bonusPhoto:"pending"};S.draft[cid]={...d,bphoto:null};S.msg["b"+cid]=null}catch(e){return fail(e,"b"+cid)}
+    const bp=isQuest()?"saved":"pending";await HD.doc("subs/"+id).update({bonusPhoto:bp,bonusAt:Date.now()});
+    S.subs[id]={...s,bonusPhoto:bp};S.draft[cid]={...d,bphoto:null};S.msg["b"+cid]=null}catch(e){return fail(e,"b"+cid)}
   S.busy=false;render();
 }
 async function judgeBonus(id,ok){
@@ -535,6 +562,8 @@ function viewJudge(){
 }
 
 function tick(){
+  if(S.view==="hunt"&&S.hunt&&isQuest()){const h=huntInfo(),el=document.getElementById("qclock");
+    if(h.endsAt&&h.status==="live"){const left=h.endsAt-Date.now();if(left<=0&&!S.qover){S.qover=true;render()}else if(el&&left>0)el.textContent=fmtClock(left)}}
   const t=myTeam();if(!t)return;const left=(t.startedAt||t.createdAt)+TARGET_MIN*60000-Date.now();
   const txt=left>=0?fmt(left)+" left":fmt(left)+" over";
   for(const id of ["clock","hclock"]){const el=document.getElementById(id);if(el){el.textContent=id==="hclock"?fmt(left):txt;el.classList.toggle("over",left<0)}}
@@ -665,7 +694,7 @@ async function useHint(cid){
 }
 async function submit(cid){
   if(!amCaptain(myTeam())||huntStatus()!=="live")return;
-  const t=myTeam(),c=clueById[cid],type=S.ans[cid]||"text",d=S.draft[cid]||{};
+  const t=myTeam(),c=clueById[cid],type=isQuest()?"text":(S.ans[cid]||"text"),d=S.draft[cid]||{};
   const id=subId(t.id,cid),n=hintsUsed(t,cid);let text="",status="pending";
   if(type==="acc"){text=(d.acc||"").trim();if(!text){S.msg[cid]=["bad","Type the accession number from the label."];return render()}
     const hv=await h(accNorm(text));if(hv&&c.ah.includes(hv))status="correct"}
@@ -673,6 +702,7 @@ async function submit(cid){
     const tk=toks(text),grams=[...tk];for(let i=0;i<tk.length-1;i++)grams.push(tk[i]+" "+tk[i+1]);
     for(const g of grams){const hv=await h(g);if(hv&&c.kh.includes(hv)){status="correct";break}}}
   else{if(!d.photo){S.msg[cid]=["bad","Take or choose a photo first."];return render()}}
+  if(isQuest()&&status!=="correct"){S.tries[cid]=(S.tries[cid]||0)+1;S.msg[cid]=["bad","Not quite. Check the label and try again, or use a hint."];return render()}
   S.busy=true;render();
   try{
     if(type==="photo")await HD.doc("photos/"+id).set({id,team:t.id,clue:cid,img:d.photo});
@@ -731,6 +761,15 @@ document.addEventListener("click",e=>{
   else if(ds.claimcancel){S.claim=null;render()}
   else if(ds.claim!=null)claimSpot(+ds.claim);
   else if(ds.import)importLegacy();
+  else if(ds.museum)chooseMuseum(ds.museum);
+  else if(ds.geo)locateMe();
+  else if(ds.bdiff){S.build={...S.build,diff:ds.bdiff};render()}
+  else if(ds.bmin){S.build={...S.build,min:+ds.bmin};render()}
+  else if(ds.bshuffle){S.build={...S.build,seed:Math.floor(Math.random()*1e9)};render()}
+  else if(ds.bstart)startQuest();
+  else if(ds.invite)inviteFriends();
+  else if(ds.endquest)endQuest();
+  else if(ds.reveal)revealStop(ds.reveal);
   else if(ds.bsubmit)sendBonusPhoto(ds.bsubmit);
   else if(ds.bjudge)judgeBonus(ds.bjudge,ds.v==="ok");
   else if(ds.bonusopen){S.bonusOpen=S.bonusOpen===ds.bonusopen?null:ds.bonusopen;render()}
@@ -793,7 +832,7 @@ const HD={doc:p=>S.db.doc("hunts/"+S.hunt+"/"+p),collection:p=>S.db.collection("
 const uid=()=>S.user&&S.user.uid;
 const isAdmin=()=>!!(S.user&&S.user.emailVerified&&ADMINS.includes(String(S.user.email||"").toLowerCase()));
 const huntInfo=()=>S.hunts[S.hunt]||{};
-const huntStatus=()=>huntInfo().status||"upcoming";
+const huntStatus=()=>{const h=huntInfo(),st=h.status||"upcoming";return st==="live"&&h.endsAt&&Date.now()>h.endsAt?"ended":st};
 const STATUS_LABEL={live:"Live now",upcoming:"Upcoming",ended:"Ended"};
 S.view="home";S.hunts={};S.unsub=[];S.huntsUnsub=null;S.prof=null;S.claim=null;S.authReady=false;
 function fmtDate(d){if(!d)return "";try{return new Date(d+"T12:00:00").toLocaleDateString([],{month:"long",day:"numeric",year:"numeric"})}catch(e){return d}}
@@ -811,7 +850,7 @@ function route(){
   if(!S.user){S.view="home";return render()}
   if(h.startsWith("h-")){openHunt(h.slice(2));return}
   closeHunt();
-  S.view=h==="profile"?"profile":h==="admin"?"admin":"home";
+  S.view=h==="profile"?"profile":h==="admin"?"admin":h==="museum"?"museum":"home";
   if(S.view==="profile")loadProfile();
   render();window.scrollTo({top:0});
 }
@@ -819,14 +858,14 @@ window.addEventListener("hashchange",route);
 
 function subscribeHunts(){
   if(S.huntsUnsub)return;
-  S.huntsUnsub=S.db.collection("hunts").onSnapshot(snap=>{S.hunts={};snap.docs.forEach(d=>{S.hunts[d.id]={id:d.id,...d.data()}});S.owner=isAdmin();render()},
+  S.huntsUnsub=S.db.collection("hunts").where("public","==",true).onSnapshot(snap=>{const keep=Object.fromEntries(Object.entries(S.hunts).filter(([k,v])=>v.kind==="quest"));S.hunts=keep;snap.docs.forEach(d=>{S.hunts[d.id]={id:d.id,...d.data()}});S.owner=isAdmin();render()},
     e=>{S.err="Couldn't load the list of hunts. Check your connection and reload.";render()});
 }
 function closeHunt(){S.unsub.forEach(f=>{try{f()}catch(e){}});S.unsub=[];S.hunt=null}
 async function openHunt(id){
   if(S.hunt===id&&S.unsub.length){S.view="hunt";return render()}
   closeHunt();
-  Object.assign(S,{hunt:id,view:"hunt",teams:{},subs:{},loaded:{teams:false,subs:false},plist:[],me:null,myName:null,photos:{},open:null,find:null,draft:{},msg:{},err:null,writeBlocked:false,confirm:null});
+  Object.assign(S,{hunt:id,view:"hunt",qover:false,tries:{},teams:{},subs:{},loaded:{teams:false,subs:false},plist:[],me:null,myName:null,photos:{},open:null,find:null,draft:{},msg:{},err:null,writeBlocked:false,confirm:null});
   S.tab=ls.get("mh_tab")||"hunt";if(S.tab==="judge"&&!isAdmin())S.tab="hunt";
   render();window.scrollTo({top:0});
   try{const p=await S.db.doc("users/"+uid()+"/plays/"+id).get();if(S.hunt!==id)return;
@@ -834,6 +873,7 @@ async function openHunt(id){
   const lt=setTimeout(()=>{if(!(S.loaded.teams&&S.loaded.subs)){S.err="Scores are taking a while to load. Check your connection.";render()}},10000);
   const done=()=>{if(S.loaded.teams&&S.loaded.subs){clearTimeout(lt);if(S.err&&S.err.startsWith("Scores"))S.err=null}};
   const lost=e=>{S.err=e&&e.code==="permission-denied"?"You don't have access to this hunt.":"Lost connection to the leaderboard. Reload to try again.";render()};
+  S.unsub.push(S.db.doc("hunts/"+id).onSnapshot(snap=>{if(S.hunt!==id)return;if(snap.exists){const v={id,...snap.data()};S.hunts[id]=v;if(v.kind==="quest")questRoute(v)}render()},()=>{}));
   S.unsub.push(HD.collection("teams").limit(1000).onSnapshot(snap=>{S.teams={};snap.docs.forEach(d=>{const v=d.data();if(v&&v.id)S.teams[v.id]=v});S.loaded.teams=true;done();render()},lost));
   S.unsub.push(HD.doc("config/participants").onSnapshot(snap=>{setPlist(snap.exists?((snap.data()||{}).list||[]):[]);render()},()=>{}));
   S.unsub.push(HD.collection("subs").limit(1000).onSnapshot(snap=>{S.subs={};snap.docs.forEach(d=>{const v=d.data();if(v&&v.id)S.subs[v.id]=v});S.loaded.subs=true;done();render()},lost));
@@ -841,7 +881,8 @@ async function openHunt(id){
 }
 async function recordPlay(teamId,name){
   S.myName=name;
-  try{await S.db.doc("users/"+uid()+"/plays/"+S.hunt).set({hunt:S.hunt,team:teamId,name,at:Date.now()})}catch(e){}
+  const h=huntInfo();const extra=h.kind==="quest"?{kind:"quest",huntName:h.name||"",endsAt:h.endsAt||0}:{};
+  try{await S.db.doc("users/"+uid()+"/plays/"+S.hunt).set({hunt:S.hunt,team:teamId,name,at:Date.now(),...extra})}catch(e){}
 }
 
 /* ---------- sign in ---------- */
@@ -884,13 +925,16 @@ async function ensureUser(u){
 
 /* ---------- home ---------- */
 function viewHome(){
-  const L=Object.values(S.hunts).sort((a,b)=>String(b.date||"").localeCompare(String(a.date||"")));
+  if(!S.udoc)return `<div class="empty"><b>Loading…</b></div>`;
+  const M=museumOf();if(!M)return viewMuseums();
   const first=String(S.user.displayName||"").split(" ")[0];
-  const group=st=>L.filter(h=>(h.status||"upcoming")===st);
+  let html=`<section class="route"><h3>${esc(M.short)} · <a href="#museum">Change museum</a></h3><h2>${first?`Welcome, ${esc(first)}`:"Welcome"}</h2><p class="start">Build a hunt for yourself and your friends, or join a group hunt an organizer has set up.</p></section>`;
+  const now=Date.now(),go=Object.entries(S.plays||{}).filter(([k,p])=>p.kind==="quest"&&p.endsAt>now).sort((a,b)=>a[1].endsAt-b[1].endsAt);
+  if(go.length)html+=`<section class="huntlist"><h3>In progress</h3>${go.map(([k,p])=>`<a class="huntcard" href="#h-${encodeURIComponent(k)}"><span class="hc-main"><b>${esc(p.huntName||"Your hunt")}</b><span class="small muted">${fmtClock(p.endsAt-now)} left</span></span><span class="chip ok">Resume</span></a>`).join("")}</section>`;
+  html+=builderPanel();
+  const L=Object.values(S.hunts).filter(h=>h.public&&(h.museum||"met")===M.id).sort((a,b)=>String(b.date||"").localeCompare(String(a.date||"")));
   const card=h=>`<a class="huntcard" href="#h-${encodeURIComponent(h.id)}"><span class="hc-main"><b>${esc(h.name||h.id)}</b><span class="small muted">${esc(fmtDate(h.date))}${h.place?` · ${esc(h.place)}`:""}</span></span><span class="chip ${h.status==="live"?"ok":h.status==="ended"?"":"pend"}">${STATUS_LABEL[h.status||"upcoming"]}</span></a>`;
-  let html=`<section class="route"><h3>Scavenger hunts</h3><h2>${first?`Welcome, ${esc(first)}`:"Welcome"}</h2><p class="start">Pick a hunt to join your team and play, or look back at past results.</p></section>`;
-  if(!L.length)return html+`<div class="empty"><b>No hunts yet</b>When the organizer opens a hunt, it will show up here.</div>`;
-  for(const [st,label] of [["live","Live now"],["upcoming","Coming up"],["ended","Past hunts"]]){const g=group(st);if(g.length)html+=`<section class="huntlist"><h3>${label}</h3>${g.map(card).join("")}</section>`}
+  for(const [st,label] of [["live","Group hunts happening now"],["upcoming","Upcoming group hunts"],["ended","Past group hunts"]]){const g=L.filter(h=>(h.status||"upcoming")===st);if(g.length)html+=`<section class="huntlist"><h3>${label}</h3>${g.map(card).join("")}</section>`}
   return html;
 }
 
@@ -900,7 +944,8 @@ async function loadProfile(){
   try{
     const ps=await S.db.collection("users/"+uid()+"/plays").get();const plays=[];
     for(const d of ps.docs){const p=d.data();const hid=p.hunt||d.id;
-      const hunt=S.hunts[hid]||{id:hid,name:hid};
+      let hunt=S.hunts[hid];if(!hunt){try{const hs=await S.db.doc("hunts/"+hid).get();hunt=hs.exists?{id:hid,...hs.data()}:{id:hid,name:p.huntName||hid}}catch(e){hunt={id:hid,name:p.huntName||hid}}}
+      if(hunt.kind==="quest")questRoute(hunt);
       const [ts,ss]=await Promise.all([S.db.collection(`hunts/${hid}/teams`).get(),S.db.collection(`hunts/${hid}/subs`).get()]);
       const teams={},subs={};ts.docs.forEach(x=>{const v=x.data();if(v&&v.id)teams[v.id]=v});ss.docs.forEach(x=>{const v=x.data();if(v&&v.id)subs[v.id]=v});
       const board=Object.values(teams).map(t=>({t,s:stats(t,subs)})).sort(rankSort);
@@ -917,14 +962,17 @@ async function loadProfile(){
 }
 function profileStats(plays){
   const done=plays.filter(p=>p.st);const allCols=new Set();done.forEach(p=>p.cols.forEach(c=>allCols.add(c)));
-  const ended=p=>(p.hunt.status||"")==="ended";
+  const ended=p=>p.hunt.kind!=="quest"&&(p.hunt.status||"")==="ended";
   return {hunts:plays.length,wins:done.filter(p=>p.rank===1&&ended(p)).length,podium:done.some(p=>p.rank&&p.rank<=3&&ended(p)),
     points:done.reduce((a,p)=>a+p.st.score,0),found:done.reduce((a,p)=>a+p.st.solved,0),photos:done.reduce((a,p)=>a+p.photos.length,0),
     collections:allCols.size,perfect:done.some(p=>p.st.solved===p.st.total&&p.st.total>0),captain:done.some(p=>p.captain),
-    nohint:done.some(p=>p.st.hints===0&&p.st.solved>=6)};
+    nohint:done.some(p=>p.st.hints===0&&p.st.solved>=6),hard:done.some(p=>p.hunt.difficulty==="hard"&&p.st.solved>=Math.max(3,Math.ceil(p.st.total/2))),
+    built:plays.some(p=>p.hunt.kind==="quest")};
 }
 const BADGES=[
   ["First hunt","Played your first scavenger hunt",s=>s.hunts>=1],
+  ["Trailblazer","Built your own hunt",s=>s.built],
+  ["Hard mode","Found half the stops on a hard hunt",s=>s.hard],
   ["Champion","Won a hunt",s=>s.wins>=1],
   ["Podium","Finished in the top three",s=>s.podium],
   ["Perfect route","Found every stop on a route",s=>s.perfect],
@@ -933,6 +981,7 @@ const BADGES=[
   ["Explorer","Found objects in 10 collections",s=>s.collections>=10],
   ["No hints needed","Solved 6+ stops in a hunt without a hint",s=>s.nohint],
 ];
+const huntLive=h=>h.status==="live"&&!(h.endsAt&&Date.now()>h.endsAt);
 function viewProfile(){
   const u=S.user;const P=S.prof||{loading:true};
   let html=`<section class="profhead">${avatar(u,72)}<div class="ph-main"><h2>${esc(u.displayName||String(u.email||"").split("@")[0]||"Player")}</h2><p class="small muted">${esc(u.email||"")}</p></div>
@@ -946,13 +995,13 @@ function viewProfile(){
   html+=`<section><h3>Your hunts</h3>`;
   if(!P.plays.length)html+=`<div class="empty"><b>No hunts yet</b>Join a hunt from the <a href="#">Hunts</a> page, or claim a past one above.</div>`;
   P.plays.forEach(p=>{const t=p.team,s=p.st;
-    html+=`<article class="histcard"><div class="row" style="justify-content:space-between;align-items:flex-start"><div style="min-width:0"><b class="hname">${esc(p.hunt.name||p.hid)}</b><span class="small muted">${esc(fmtDate(p.hunt.date))}${p.hunt.status==="live"?" · live now":""}</span></div>
-    ${t&&p.rank?`<span class="rankpill">${ordinal(p.rank)} <span>of ${p.of}</span></span>`:""}</div>
+    html+=`<article class="histcard"><div class="row" style="justify-content:space-between;align-items:flex-start"><div style="min-width:0"><b class="hname">${esc(p.hunt.name||p.hid)}</b><span class="small muted">${esc(fmtDate(p.hunt.date))}${huntLive(p.hunt)?" · in progress":""}</span></div>
+    ${t&&p.rank&&p.hunt.kind!=="quest"?`<span class="rankpill">${ordinal(p.rank)} <span>of ${p.of}</span></span>`:""}</div>
     ${t?`<p class="small">Team <b>${esc(t.name)}</b>${captainOf(t)?` · captain ${esc(captainOf(t))}`:""}${p.captain?` · <span class="tier">You were captain</span>`:""}</p>
     <div class="hstats"><span><b>${s.score}</b> points</span><span><b>${s.solved}/${s.total}</b> stops</span><span><b>${s.hints}</b> hint${s.hints===1?"":"s"}</span><span><b>${p.photos.length}</b> photo${p.photos.length===1?"":"s"}</span></div>
     ${p.photos.length?`<div class="pgrid">${p.photos.map(ph=>`<figure><img src="${ph.src}" alt="${esc((clueById[ph.clue]||{}).title||"Team photo")}" loading="lazy"><figcaption>${esc((clueById[ph.clue]||{}).title||"")}${ph.bonus?" · team photo":""}</figcaption></figure>`).join("")}</div>`:""}`
     :`<p class="small muted">The team you played on (${esc(p.name||"")}) is no longer in this hunt's records.</p>`}
-    <a class="small" href="#h-${encodeURIComponent(p.hid)}">${p.hunt.status==="ended"?"See final leaderboard":"Open hunt"} →</a></article>`});
+    <a class="small" href="#h-${encodeURIComponent(p.hid)}">${huntLive(p.hunt)?"Open hunt":p.hunt.kind==="quest"?"See your stops":"See final leaderboard"} →</a></article>`});
   return html+`</section>`;
 }
 
@@ -1014,7 +1063,7 @@ async function createHunt(name,date){
   if(!name||!/^\d{4}-\d{2}-\d{2}$/.test(date)){S.msg.nh=["bad","Enter a name and a date."];return render()}
   let id=date;let n=2;while(S.hunts[id])id=date+"-"+(n++);
   S.busy=true;render();
-  try{await S.db.doc("hunts/"+id).set({name,date,status:"upcoming",createdAt:Date.now()});S.msg.nh=["ok",`Created “${name}”. Set it to Live when you're ready.`];S.draft.nhName="";S.draft.nhDate=""}
+  try{await S.db.doc("hunts/"+id).set({name,date,status:"upcoming",kind:"event",public:true,createdAt:Date.now()});S.msg.nh=["ok",`Created “${name}”. Set it to Live when you're ready.`];S.draft.nhName="";S.draft.nhDate=""}
   catch(e){S.msg.nh=["bad","Couldn't create the hunt. Check that you're signed in as an organizer."]}
   S.busy=false;render();
 }
@@ -1023,13 +1072,182 @@ async function importLegacy(){
   const id="2026-11-07";S.busy=true;S.msg.imp=["pend","Importing…"];render();
   try{
     const [ts,ss,ps,cfg]=await Promise.all([S.db.collection("teams").get(),S.db.collection("subs").get(),S.db.collection("photos").get(),S.db.doc("config/participants").get()]);
-    await S.db.doc("hunts/"+id).set({name:"Met Scavenger Hunt",date:id,status:"ended",createdAt:Date.now(),imported:true});
+    await S.db.doc("hunts/"+id).set({name:"Met Scavenger Hunt",date:id,status:"ended",kind:"event",public:true,createdAt:Date.now(),imported:true});
     let n=0;const copy=async(coll,docs)=>{for(const d of docs){const v=d.data();if(!v)continue;await S.db.doc(`hunts/${id}/${coll}/${d.id}`).set(v);n++;S.msg.imp=["pend",`Importing… ${n} records`];if(n%10===0)render()}};
     await copy("teams",ts.docs);await copy("subs",ss.docs);await copy("photos",ps.docs);
     if(cfg.exists)await S.db.doc(`hunts/${id}/config/participants`).set(cfg.data());
     S.msg.imp=["ok",`Imported ${ts.docs.length} teams, ${ss.docs.length} answers and ${ps.docs.length} photos.`];
   }catch(e){S.msg.imp=["bad","Import failed. Check that the database rules allow organizer access, then try again."]}
   S.busy=false;render();
+}
+
+/* ---------- museums and build-your-own hunts ---------- */
+const MUSEUMS=[{id:"met",name:"The Metropolitan Museum of Art",short:"The Met",addr:"1000 Fifth Avenue",city:"New York, NY",lat:40.7794,lng:-73.9632}];
+const MINUTES=[30,60,90,120,150,180];
+const DIFF={
+  easy:{label:"Easy",blurb:"Gallery numbers up front and friendlier questions.",dwell:4,costs:[10],pref:{1:0,2:4}},
+  medium:{label:"Medium",blurb:"You get the department and floor. Two hints if you're stuck.",dwell:5,costs:[20,30],pref:{1:0,2:0,3:3}},
+  hard:{label:"Hard",blurb:"Only the floor is given. Tougher questions, pricier hints.",dwell:7,costs:[30,40],pref:{1:5,2:1,3:0}}};
+const DEPT={AW:"American Wing",AA:"Arms and Armor",MED:"Medieval Art",GR:"Greek and Roman Art",ROCK:"Africa, Oceania and the Americas",
+  EP:"European Paintings",C19:"19th-Century European Paintings",ISL:"Islamic Art",ASIA:"Asian Art",EG:"Egyptian Art",ES:"European Sculpture"};
+/* Where each stop is, on a rough plan of The Met in meters from the Great Hall (x: west, y: north),
+   and how hard its question is (1 easy to 3 hard). Used to estimate walking time and pick stops. */
+const POOL={
+  w0:["AW",1,110,110,1],b1:["AW",1,110,110,1],c9:["AW",1,115,115,2],d5:["AW",1,125,140,2],a3:["AW",2,110,100,2],e7:["AW",2,115,115,1],
+  a2:["AA",1,80,30,1],b10:["AA",1,90,45,2],e6:["AA",1,90,45,2],c8:["AA",1,95,60,1],d4:["AA",1,95,60,1],
+  a1:["MED",1,55,0,2],c7:["MED",1,50,-10,2],d3:["MED",1,35,10,3],e5:["MED",1,35,10,3],
+  b7:["GR",1,10,-40,2],c5:["GR",1,10,-45,1],a9:["GR",1,40,-110,1],d1:["GR",1,40,-110,2],
+  b8:["ROCK",1,90,-110,1],e4:["ROCK",1,90,-110,2],a10:["ROCK",1,115,-95,1],d2:["ROCK",1,115,-95,2],c6:["ROCK",1,110,-120,2],
+  b9:["ES",1,60,-50,1],
+  c10:["EG",1,0,40,2],e8:["EG",1,10,65,2],a4:["EG",1,10,70,1],d6:["EG",1,20,100,1],b2:["EG",1,40,150,2],
+  a6:["EP",2,60,10,1],b4:["EP",2,60,15,3],c2:["EP",2,70,20,3],d8:["EP",2,65,-15,1],e10:["EP",2,70,-20,1],e3:["EP",2,85,-5,3],
+  e1:["C19",2,65,-65,1],b5:["C19",2,70,-70,1],a7:["C19",2,75,-85,2],c3:["C19",2,75,-85,1],d9:["C19",2,80,-90,3],
+  b6:["ISL",2,20,-50,1],c4:["ISL",2,20,-55,2],d10:["ISL",2,25,-65,2],a8:["ISL",2,25,-70,2],e2:["ISL",2,25,-75,3],
+  d7:["ASIA",2,15,40,1],e9:["ASIA",2,15,45,1],b3:["ASIA",2,20,60,2],a5:["ASIA",2,30,70,1],c1:["ASIA",2,45,95,1]};
+const walkMin=(a,b)=>(Math.abs(a.x-b.x)+Math.abs(a.y-b.y))/45+(a.f!==b.f?2.5:0);
+function rng(seed){let s=(seed>>>0)||1;return()=>{s^=s<<13;s>>>=0;s^=s>>>17;s^=s<<5;s>>>=0;return s/4294967296}}
+/* Greedy walking tour from the Great Hall: each step takes the cheapest next stop (walk + time at the object),
+   nudged toward the chosen difficulty and away from repeating a department, until the time budget is used. */
+function buildQuest(diff,minutes,seed){
+  const D=DIFF[diff]||DIFF.medium,R=rng(seed),budget=minutes*0.9;
+  const pool=Object.entries(POOL).map(([id,[d,f,x,y,l]])=>({id,d,f,x,y,l})).filter(p=>p.l in D.pref&&clueById[p.id]);
+  let at={x:0,y:0,f:1},used=0;const pick=[],seen=new Set(),depts={};
+  for(;;){let best=null;
+    for(const p of pool){if(seen.has(p.id))continue;const cost=walkMin(at,p)+D.dwell;if(used+cost>budget)continue;
+      const score=cost+D.pref[p.l]+(depts[p.d]||0)*6+R()*5;if(!best||score<best.score)best={p,cost,score}}
+    if(!best)break;pick.push(best.p.id);seen.add(best.p.id);used+=best.cost;at=best.p;depts[best.p.d]=(depts[best.p.d]||0)+1}
+  return {stops:pick,est:Math.round(used),floors:[...new Set(pick.map(id=>POOL[id][1]))].sort(),depts:[...new Set(pick.map(id=>DEPT[POOL[id][0]]))]};
+}
+const fmtMin=m=>m<60?m+" min":(m%60?`${Math.floor(m/60)} hr ${m%60} min`:`${m/60} hr${m>60?"s":""}`);
+function fmtClock(ms){ms=Math.max(0,ms);const s=Math.floor(ms/1000),h=Math.floor(s/3600),m=Math.floor(s/60)%60,x=s%60;return (h?h+":"+String(m).padStart(2,"0"):m)+":"+String(x).padStart(2,"0")}
+const isQuest=()=>huntInfo().kind==="quest";
+const diffKey=()=>isQuest()&&DIFF[huntInfo().difficulty]?huntInfo().difficulty:"medium";
+const hintCosts=()=>DIFF[diffKey()].costs;
+const answerOf=c=>((key()[c.id]||{}).key||"").split(" · ")[0];
+function galleryOf(c){const g=c.hints[1]||"";return /^Gallery|gallery of/i.test(g)?g:"check the museum map for the gallery"}
+function whereFor(c){const d=diffKey();if(d==="easy")return c.where+" · "+galleryOf(c);
+  if(d==="hard"){const m=String(c.where).match(/Floor \d/);return m?m[0]:"Somewhere in the museum"}return c.where}
+function clueHints(c){const d=diffKey();if(d==="easy")return [["Directions",c.hints[0]]];
+  if(d==="hard")return [["Where to go",c.where+". "+c.hints[0]],["Gallery",c.hints[1]]];
+  return [["Directions",c.hints[0]],["Gallery",c.hints[1]]]}
+function hintLabel(n){return n?"Reveal gallery number":diffKey()==="hard"?"Reveal where to go":"Reveal directions"}
+function questRoute(h){const id="q-"+h.id,v=(h.stops||[]).join();
+  if(!routeById[id]||routeById[id]._v!==v)routeById[id]={id,name:h.name||"Your hunt",color:"#E4002B",quest:true,_v:v,clues:(h.stops||[]).map(s=>clueById[s]).filter(Boolean)};
+  return routeById[id]}
+const museumOf=()=>MUSEUMS.find(m=>m.id===(S.udoc&&S.udoc.museum))||null;
+function distKm(a,b){const r=x=>x*Math.PI/180,dl=r(b.lat-a.lat),dn=r(b.lng-a.lng);
+  const q=Math.sin(dl/2)**2+Math.cos(r(a.lat))*Math.cos(r(b.lat))*Math.sin(dn/2)**2;return 12742*Math.asin(Math.sqrt(q))}
+const fmtDist=km=>{const mi=km*0.621371;return (mi<10?mi.toFixed(1):Math.round(mi).toLocaleString())+" mi"};
+
+function viewMuseums(){
+  const cur=museumOf();const L=MUSEUMS.map(m=>({...m,km:S.geo?distKm(S.geo,m):null})).sort((a,b)=>(a.km??0)-(b.km??0));
+  return `<section class="route"><h3>${cur?"Your museum":"Step 1 of 2"}</h3><h2>Choose your museum</h2><p class="start">Pick the museum you're visiting. Hunts are built from its galleries.</p></section>
+  <div class="row"><button class="btn ghost sm" data-geo="1" ${S.busy?"disabled":""}>${S.geo?"Sorted by distance":"Show distance from me"}</button>${S.msg.geo?`<span class="msg ${S.msg.geo[0]}">${esc(S.msg.geo[1])}</span>`:""}</div>
+  <section class="huntlist">${L.map(m=>`<button type="button" class="huntcard museum" data-museum="${esc(m.id)}" aria-pressed="${cur&&cur.id===m.id}"><span class="hc-main"><b>${esc(m.name)}</b><span class="small muted">${esc(m.addr)}, ${esc(m.city)}${m.km!=null?` · ${fmtDist(m.km)} away`:""}</span></span><span class="chip ${cur&&cur.id===m.id?"ok":""}">${cur&&cur.id===m.id?"Selected":"Choose"}</span></button>`).join("")}</section>
+  <p class="small muted">More museums are on the way.</p>`;
+}
+function locateMe(){
+  if(!navigator.geolocation){S.msg.geo=["bad","Your browser can't share its location."];return render()}
+  S.msg.geo=["pend","Finding you…"];render();
+  navigator.geolocation.getCurrentPosition(p=>{S.geo={lat:p.coords.latitude,lng:p.coords.longitude};S.msg.geo=null;render()},
+    ()=>{S.msg.geo=["bad","Location isn't available. You can still pick a museum."];render()},{timeout:10000,maximumAge:600000});
+}
+async function chooseMuseum(id){
+  S.udoc={...(S.udoc||{}),museum:id};location.hash="#";
+  try{await S.db.doc("users/"+uid()).set({museum:id},{merge:true})}catch(e){}
+}
+
+function builderPanel(){
+  const B=S.build||(S.build={diff:"medium",min:60,seed:Math.floor(Math.random()*1e9)});
+  const plan=buildQuest(B.diff,B.min,B.seed);
+  return `<section class="panel builder" aria-labelledby="bTitle"><h3 id="bTitle">Build your own hunt</h3>
+  <div><p class="lbl">Difficulty</p><div class="opts" role="group" aria-label="Difficulty">${Object.entries(DIFF).map(([k,d])=>`<button type="button" class="opt" data-bdiff="${k}" aria-pressed="${B.diff===k}"><b>${d.label}</b><span>${esc(d.blurb)}</span></button>`).join("")}</div></div>
+  <div><p class="lbl">Length</p><div class="lens" role="group" aria-label="Length">${MINUTES.map(m=>`<button type="button" class="len" data-bmin="${m}" aria-pressed="${B.min===m}">${fmtMin(m)}</button>`).join("")}</div></div>
+  <div class="plan"><div class="hstats"><span><b>${plan.stops.length}</b> stops</span><span><b>${plan.stops.length*BASE}</b> points to win</span><span>Floor${plan.floors.length>1?"s":""} <b>${plan.floors.join(" and ")}</b></span></div>
+  <p class="small muted">About ${plan.est} minutes of walking and searching, leaving time to look around. Collections: ${esc(plan.depts.join(", "))}.</p></div>
+  <div class="row"><button class="btn" data-bstart="1" ${S.busy||!plan.stops.length?"disabled":""}>Start the ${esc(fmtMin(B.min))} hunt</button><button class="btn ghost" data-bshuffle="1">Shuffle stops</button></div>
+  <p class="small muted">Start in the Great Hall. The clock starts when you tap Start, and you can invite friends once you're in.</p>
+  ${S.msg.build?`<p class="msg ${S.msg.build[0]}">${esc(S.msg.build[1])}</p>`:""}</section>`;
+}
+async function startQuest(){
+  const B=S.build;if(!B||S.busy)return;const plan=buildQuest(B.diff,B.min,B.seed);if(!plan.stops.length)return;
+  const now=Date.now(),id="q"+now.toString(36)+Math.random().toString(36).slice(2,6);
+  const name=`${DIFF[B.diff].label} hunt · ${fmtMin(B.min)}`;
+  const h={kind:"quest",public:false,museum:(museumOf()||MUSEUMS[0]).id,owner:uid(),name,date:new Date(now).toISOString().slice(0,10),status:"live",
+    difficulty:B.diff,minutes:B.min,stops:plan.stops,est:plan.est,floors:plan.floors,startedAt:now,endsAt:now+B.min*60000,createdAt:now};
+  const me=playerName()||"Player";
+  S.busy=true;S.msg.build=null;render();
+  try{await S.db.doc("hunts/"+id).set(h);
+    await S.db.doc(`hunts/${id}/teams/t1`).set({id:"t1",name:`${me.split(" ")[0]}'s team`,route:"q-"+id,createdAt:now,startedAt:now,hints:{},roster:[me],captainUid:uid(),members:[uid()]});
+    await S.db.doc(`users/${uid()}/plays/${id}`).set({hunt:id,team:"t1",name:me,at:now,kind:"quest",huntName:name,endsAt:h.endsAt});
+    S.hunts[id]={id,...h};questRoute(S.hunts[id]);S.build={...B,seed:Math.floor(Math.random()*1e9)};S.busy=false;S.tab="hunt";location.hash="#h-"+id}
+  catch(e){S.busy=false;S.msg.build=["bad","Couldn't start the hunt. Check your connection and try again."];render()}
+}
+
+function questView(t,r){
+  const h=huntInfo(),st=stats(t),over=huntStatus()==="ended",owner=h.owner===uid();
+  let html=`<section class="route qhead" style="${cv(r)}"><span class="rbadge"><span class="dot"></span>${esc(DIFF[diffKey()].label)} · ${esc(fmtMin(h.minutes||0))} · Floor${(h.floors||[]).length>1?"s":""} ${esc((h.floors||[1]).join(" and "))}</span>
+    <div class="qtop"><h2>${esc(t.name)}</h2><span class="qclock ${over?"done":""}" id="qclock" role="timer" aria-label="Time left">${over?"Finished":fmtClock(h.endsAt-Date.now())}</span></div>
+    <div class="hstats"><span><b>${st.score}</b> points</span><span><b>${st.solved}/${r.clues.length}</b> found</span><span><b>${st.hints}</b> hint${st.hints===1?"":"s"}</span></div>
+    ${over?"":`<p class="start"><b>Start:</b> the Great Hall, the main entrance on Fifth Avenue. Stops are listed in walking order.</p>`}
+    ${!over&&owner?`<div class="row"><button class="btn ghost sm" data-invite="1">Invite friends</button><button class="btn ghost sm" data-endquest="1">${S.confirm==="endq"?"Tap again to finish now":"Finish early"}</button>${S.confirm==="endq"?`<button class="btn ghost sm" data-cancelhint="1">Cancel</button>`:""}</div>`:""}
+    ${S.msg.invite?`<p class="msg ${S.msg.invite[0]}">${esc(S.msg.invite[1])}</p>`:""}</section><ol class="clues">`;
+  r.clues.forEach((c,i)=>{
+    const s=S.subs[subId(t.id,c.id)],n=hintsUsed(t,c.id),open=S.open===c.id,stt=s?s.status:null;
+    const chip=stt==="correct"?`<span class="chip ok">+${s.points}</span>`:stt==="skipped"?`<span class="chip">Skipped</span>`:`<span class="chip">${pts(n)} pts</span>`;
+    html+=`<li class="clue ${open?"open":""}"><button class="head" data-open="${c.id}" aria-expanded="${open}"><span class="num">${i+1}</span><span class="ct"><b>${esc(c.title)}</b><span>${esc(whereFor(c))}</span></span>${chip}</button>`;
+    if(open)html+=`<div class="body">${clueBody(t,c,s,n)}</div>`;
+    html+=`</li>`;
+  });
+  return html+`</ol>`;
+}
+function questSummary(){
+  const t=myTeam(),r=t&&routeById[t.route];if(!t||!r)return `<div class="banner">This hunt has ended.</div>`;
+  const st=stats(t);return `<div class="banner ok"><b>Time's up.</b> You found ${st.solved} of ${r.clues.length} stops for ${st.score} points. It's saved on your <a href="#profile">profile</a>.</div>`;
+}
+function questJoin(){
+  const h=huntInfo(),T=Object.values(S.teams)[0];
+  if(!T)return `<div class="empty"><b>Loading…</b></div>`;
+  if(huntStatus()==="ended")return `<section class="route"><h3>Hunt finished</h3><h2>${esc(h.name)}</h2><p class="start">${esc(T.name)} finished this hunt. Build your own from the <a href="#">Hunts</a> page.</p></section>`;
+  return `<section class="route"><h3>You're invited</h3><h2>Join ${esc(T.name)}</h2><p class="start">${esc(h.name)} at ${esc((MUSEUMS.find(m=>m.id===h.museum)||MUSEUMS[0]).short)}, ${fmtClock(h.endsAt-Date.now())} left. Everyone sees the clues; the captain enters answers.</p></section>
+  <form class="panel" id="playerForm" onsubmit="return false"><label class="f" for="playerName">Your name<input type="text" id="playerName" maxlength="40" autocomplete="off" value="${esc(S.draft.player??S.myName??(S.user&&S.user.displayName)??"")}"></label>
+  <div class="row"><button class="btn" type="button" data-rejoin="${esc(T.id)}" ${S.busy?"disabled":""}>Join ${esc(T.name)}</button></div>${S.msg.rejoin?`<p class="msg bad">${esc(S.msg.rejoin)}</p>`:""}</form>`;
+}
+function questRules(){
+  const c=hintCosts();
+  return `<section class="rules"><h3>How it works</h3>
+  <p>Each stop is worth <b>${BASE} points</b>. Find the object, read its label and type the answer. Wrong guesses don't cost anything, so try again.</p>
+  <p>Hints cost points: ${c.map((x,i)=>`the ${i?"second":"first"} takes <b>${x}</b> off that stop`).join(", and ")}. Stuck? You can skip a stop and see the answer for 0 points.</p>
+  <p>After you solve a stop, add a photo to keep it on your profile.</p></section>`;
+}
+async function inviteFriends(){
+  const url=location.origin+location.pathname+"#h-"+S.hunt;
+  try{if(navigator.share){await navigator.share({title:"Join my museum scavenger hunt",url});return}
+    await navigator.clipboard.writeText(url);S.msg.invite=["ok","Link copied. Send it to your friends."]}
+  catch(e){if(e&&e.name==="AbortError")return;S.msg.invite=["ok","Share this link: "+url]}
+  render();
+}
+async function endQuest(){
+  if(S.confirm!=="endq"){S.confirm="endq";return render()}
+  S.confirm=null;const h=huntInfo();S.hunts[S.hunt]={...h,status:"ended",endedAt:Date.now()};render();
+  try{await S.db.doc("hunts/"+S.hunt).update({status:"ended",endedAt:Date.now()})}catch(e){fail(e,"invite")}
+}
+async function revealStop(cid){
+  const t=myTeam();if(!amCaptain(t)||huntStatus()!=="live")return;
+  if(S.confirm!=="rev:"+cid){S.confirm="rev:"+cid;return render()}
+  S.confirm=null;const id=subId(t.id,cid);
+  const sub={id,team:t.id,clue:cid,route:t.route,type:"text",teamPhoto:false,text:"",hints:hintsUsed(t,cid),status:"skipped",points:0,at:Date.now()};
+  S.subs[id]=sub;S.msg[cid]=null;render();
+  try{await HD.doc("subs/"+id).set(sub)}catch(e){fail(e,cid)}
+}
+function questPhotoBox(t,c,s){
+  if(s.bonusPhoto==="saved")return `<p class="small muted">Photo saved to your profile.</p>`;
+  if(!amCaptain(t)||huntStatus()!=="live")return "";
+  const d=S.draft[c.id]||{};
+  return `<div class="answer"><label class="f" for="bp-${c.id}">Add a photo to remember it by<input type="file" id="bp-${c.id}" data-bphoto="${c.id}" accept="image/*" capture="environment"></label>
+  ${d.bphoto?`<img class="preview" src="${d.bphoto}" alt="Your photo">`:""}
+  <div class="row"><button class="btn sm" data-bsubmit="${c.id}" ${!d.bphoto||S.busy?"disabled":""}>Save photo</button></div>
+  ${S.msg["b"+c.id]?`<p class="msg ${S.msg["b"+c.id][0]}">${esc(S.msg["b"+c.id][1])}</p>`:""}</div>`;
 }
 
 /* ---------- boot ---------- */
@@ -1040,7 +1258,11 @@ async function boot(){
   try{await S.auth.getRedirectResult()}catch(e){}
   if(S.auth.isSignInWithEmailLink(location.href)){const em=ls.get("mh_email");if(em)await finishEmailLink(em);else S.emailLinkPending=true}
   S.auth.onAuthStateChanged(u=>{S.user=u;S.authReady=true;S.owner=isAdmin();
-    if(u){ensureUser(u);subscribeHunts()}else{if(S.huntsUnsub){S.huntsUnsub();S.huntsUnsub=null}closeHunt();S.hunts={};S.prof=null}
+    (S.userUnsub||[]).forEach(f=>{try{f()}catch(e){}});S.userUnsub=[];S.udoc=null;S.plays={};
+    if(u){ensureUser(u);subscribeHunts();
+      S.userUnsub.push(S.db.doc("users/"+u.uid).onSnapshot(sn=>{S.udoc=sn.exists?(sn.data()||{}):{};render()},()=>{S.udoc={};render()}));
+      S.userUnsub.push(S.db.collection("users/"+u.uid+"/plays").onSnapshot(sn=>{S.plays={};sn.docs.forEach(d=>{S.plays[d.id]=d.data()});if(S.view==="home")render()},()=>{}))}
+    else{if(S.huntsUnsub){S.huntsUnsub();S.huntsUnsub=null}closeHunt();S.hunts={};S.prof=null}
     route()});
 }
 boot();

@@ -9,7 +9,21 @@ service cloud.firestore {
         && request.auth.token.email in ['meyhad.mozaffar@gmail.com'];
     }
     function hunt(h) { return get(/databases/$(database)/documents/hunts/$(h)).data; }
-    function huntLive(h) { return hunt(h).status == 'live'; }
+    // Live, and for a player-built hunt, still inside its time limit (one minute of grace).
+    function huntLive(h) {
+      let d = hunt(h);
+      return d.status == 'live' && (!('endsAt' in d) || request.time.toMillis() <= d.endsAt + 60000);
+    }
+    // A player building their own hunt: private, live now, one of the offered lengths and difficulties.
+    function questCreate() {
+      let d = request.resource.data;
+      return signedIn() && d.kind == 'quest' && d.owner == request.auth.uid && d.public == false
+        && d.status == 'live' && d.minutes in [30, 60, 90, 120, 150, 180]
+        && d.difficulty in ['easy', 'medium', 'hard']
+        && d.stops is list && d.stops.size() > 0 && d.stops.size() <= 40
+        && d.startedAt is int && d.startedAt >= request.time.toMillis() - 120000
+        && d.endsAt is int && d.endsAt <= request.time.toMillis() + d.minutes * 60000 + 120000;
+    }
     function huntOpen(h) { return hunt(h).status in ['live', 'upcoming']; }
     function isCaptain(h, t) {
       return signedIn() && t is string
@@ -29,7 +43,12 @@ service cloud.firestore {
 
     match /hunts/{h} {
       allow read: if signedIn();
-      allow write: if isAdmin();
+      allow create: if isAdmin() || questCreate();
+      // the owner of a player-built hunt can only finish it
+      allow update: if isAdmin() || (signedIn() && resource.data.get('kind', 'event') == 'quest'
+        && resource.data.owner == request.auth.uid
+        && changed().hasOnly(['status', 'endedAt']) && request.resource.data.status == 'ended');
+      allow delete: if isAdmin();
 
       // Team list uploaded by the organizer.
       match /config/{d} {
@@ -48,7 +67,8 @@ service cloud.firestore {
         allow read: if signedIn();
         allow create: if isAdmin() || (signedIn() && huntOpen(h)
           && request.resource.data.id == t
-          && request.resource.data.captainUid == request.auth.uid);
+          && request.resource.data.captainUid == request.auth.uid
+          && (hunt(h).get('kind', 'event') != 'quest' || hunt(h).owner == request.auth.uid));
         allow update: if isAdmin() || (signedIn() && huntOpen(h) && (
           // anyone joining: roster and member list
           changed().hasOnly(['roster', 'members', 'startedAt'])
@@ -76,9 +96,10 @@ service cloud.firestore {
           && request.resource.data.team == resource.data.team
           && request.resource.data.get('points', 0) <= 100
           && request.resource.data.get('teamBonus', false) == false
-          && (resource.data.status != 'correct'
-              || (changed().hasOnly(['bonusPhoto', 'bonusAt'])
-                  && request.resource.data.bonusPhoto == 'pending')));
+          && (!(resource.data.status in ['correct', 'skipped'])
+              || (resource.data.status == 'correct'
+                  && changed().hasOnly(['bonusPhoto', 'bonusAt'])
+                  && request.resource.data.bonusPhoto in ['pending', 'saved'])));
         allow delete: if isAdmin();
       }
 
