@@ -110,6 +110,27 @@ service cloud.firestore {
       }
     }
 
+    // Leaderboard: one score per player-built hunt, posted by its owner while the hunt runs.
+    // The score must fit the hunt (at most 100 per stop) and repeat the hunt's own settings.
+    match /scores/{h} {
+      allow read: if signedIn();
+      allow create, update: if signedIn()
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.hunt == h
+        && hunt(h).get('kind', 'event') == 'quest'
+        && hunt(h).owner == request.auth.uid
+        && request.resource.data.theme == hunt(h).get('theme', 'mix')
+        && request.resource.data.difficulty == hunt(h).difficulty
+        && request.resource.data.minutes == hunt(h).minutes
+        && request.resource.data.total == hunt(h).stops.size()
+        && request.resource.data.score is int && request.resource.data.score >= 0
+        && request.resource.data.score <= hunt(h).stops.size() * 100
+        && request.resource.data.solved is int && request.resource.data.solved <= request.resource.data.total
+        && request.resource.data.team is string && request.resource.data.team.size() <= 40
+        && request.time.toMillis() <= hunt(h).endsAt + 600000;
+      allow delete: if isAdmin();
+    }
+
     // The original November 7 data, kept for the organizer to import.
     match /{c}/{d} {
       allow read, write: if isAdmin();

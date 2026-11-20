@@ -221,6 +221,7 @@ button.huntcard{font:inherit;text-align:left;cursor:pointer;width:100%}
 .tour .tmeta{margin-top:auto;padding-top:6px;font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--crimson-ink)}
 .tour[aria-pressed="true"]{border-color:var(--crimson);box-shadow:inset 0 0 0 1px var(--crimson)}
 .cimg{width:100%;max-height:260px;object-fit:contain;background:var(--surface);border-radius:3px;display:block;margin-bottom:10px}
+.lbrange{align-self:flex-start}
 .check{display:flex;gap:10px;align-items:flex-start;font-size:14px;padding:10px 12px;background:var(--surface);border-radius:3px;cursor:pointer}
 .check input{width:18px;height:18px;margin:1px 0 0;accent-color:var(--crimson);flex:none}
 .check b{color:var(--crimson-ink)}
@@ -315,7 +316,7 @@ function fmt(ms){const neg=ms<0;ms=Math.abs(ms);const m=Math.floor(ms/60000),s=M
 /* ---------- rendering ---------- */
 function renderTabs(){
   if(!S.user){$("#tabs").innerHTML="";return}
-  if(S.view!=="hunt"){const n=[["home","#","Hunts"],["profile","#profile","Profile"]];if(isAdmin())n.push(["admin","#admin","Organizer"]);
+  if(S.view!=="hunt"){const n=[["home","#","Hunts"],["leaders","#leaders","Leaderboard"],["profile","#profile","Profile"]];if(isAdmin())n.push(["admin","#admin","Organizer"]);
     $("#tabs").innerHTML=n.map(([id,href,l])=>`<a role="tab" aria-selected="${S.view===id}" href="${href}">${l}</a>`).join("");return}
   const pend=Object.values(S.subs).filter(s=>s.status==="pending"||s.bonusPhoto==="pending").length;
   const tabs=isQuest()?[["hunt","Hunt"],["team","Team"]]:[["hunt","Hunt"],["board","Leaderboard"],["team","Team"]];if(isAdmin()&&!isQuest())tabs.push(["judge","Judge"]);
@@ -338,6 +339,7 @@ function render(){
   else if(!S.user)html+=viewSignIn();
   else if(S.view==="profile")html+=viewProfile();
   else if(S.view==="museum")html+=viewMuseums();
+  else if(S.view==="leaders")html+=viewLeaders();
   else if(S.view==="admin")html+=isAdmin()?viewAdmin():viewHome();
   else if(S.view==="home")html+=viewHome();
   else{
@@ -715,7 +717,7 @@ async function submit(cid){
   try{
     if(type==="photo")await HD.doc("photos/"+id).set({id,team:t.id,clue:cid,img:d.photo});
     const sub={id,team:t.id,clue:cid,route:t.route,type,teamPhoto:type==="photo"&&!!d.tp,text:text.slice(0,200),hints:n,status,points:status==="correct"?pts(n):0,at:Date.now()};
-    await HD.doc("subs/"+id).set(sub);S.subs[id]=sub;
+    await HD.doc("subs/"+id).set(sub);S.subs[id]=sub;if(isQuest()&&status==="correct")postScore();
     S.msg[cid]=status==="correct"?["ok",`Correct! +${pts(n)} points.`]:type==="acc"?["pend","That number isn't an exact match. We sent it to the judge in case the label differs."]:null;
     S.draft[cid]={};
     if(status==="correct"){const nx=routeById[t.route].clues.find(x=>{const s=S.subs[subId(t.id,x.id)];return !s||s.status!=="correct"});S.open=nx?nx.id:null}
@@ -777,6 +779,8 @@ document.addEventListener("click",e=>{
   else if(ds.bstart)startQuest();
   else if(ds.btheme){S.build={...S.build,theme:ds.btheme};render()}
   else if(ds.tour)pickTour(ds.tour);
+  else if(ds.lbrange){S.lb={...S.lb,range:ds.lbrange};loadLeaders()}
+  else if(ds.lbtheme){S.lb={...S.lb,theme:ds.lbtheme};if(S.lb.range==="all")loadLeaders();else render()}
   else if(ds.invite)inviteFriends();
   else if(ds.endquest)endQuest();
   else if(ds.reveal)revealStop(ds.reveal);
@@ -860,7 +864,8 @@ function route(){
   if(!S.user){S.view="home";return render()}
   if(h.startsWith("h-")){openHunt(h.slice(2));return}
   closeHunt();
-  S.view=h==="profile"?"profile":h==="admin"?"admin":h==="museum"?"museum":"home";
+  S.view=h==="profile"?"profile":h==="admin"?"admin":h==="museum"?"museum":h==="leaders"?"leaders":"home";
+  if(S.view==="leaders")loadLeaders();
   if(S.view==="profile")loadProfile();
   render();window.scrollTo({top:0});
 }
@@ -1231,6 +1236,7 @@ async function startQuest(){
   try{await S.db.doc("hunts/"+id).set(h);
     await S.db.doc(`hunts/${id}/teams/t1`).set({id:"t1",name:`${me.split(" ")[0]}'s team`,route:"q-"+id,createdAt:now,startedAt:now,hints:{},roster:[me],captainUid:uid(),members:[uid()]});
     await S.db.doc(`users/${uid()}/plays/${id}`).set({hunt:id,team:"t1",name:me,at:now,kind:"quest",huntName:name,endsAt:h.endsAt});
+    S.db.doc("scores/"+id).set(scoreDoc({id,...h},`${me.split(" ")[0]}'s team`,0,0)).catch(()=>{});
     const seen=[...((S.udoc&&S.udoc.seen)||[]),...plan.stops].slice(-500);S.udoc={...(S.udoc||{}),seen};
     S.db.doc("users/"+uid()).set({seen},{merge:true}).catch(()=>{});
     S.hunts[id]={id,...h};questRoute(S.hunts[id]);S.build={...B,seed:Math.floor(Math.random()*1e9)};S.busy=false;S.tab="hunt";location.hash="#h-"+id}
@@ -1256,7 +1262,7 @@ function questView(t,r){
 }
 function questSummary(){
   const t=myTeam(),r=t&&routeById[t.route];if(!t||!r)return `<div class="banner">This hunt has ended.</div>`;
-  const st=stats(t);return `<div class="banner ok"><b>Time's up.</b> You found ${st.solved} of ${r.clues.length} stops for ${st.score} points. It's saved on your <a href="#profile">profile</a>.</div>`;
+  const st=stats(t);return `<div class="banner ok"><b>Time's up.</b> You found ${st.solved} of ${r.clues.length} stops for ${st.score} points. It's saved on your <a href="#profile">profile</a>. See how you rank on the <a href="#leaders">leaderboard</a>.</div>`;
 }
 function questJoin(){
   const h=huntInfo(),T=Object.values(S.teams)[0];
@@ -1284,6 +1290,7 @@ async function endQuest(){
   if(S.confirm!=="endq"){S.confirm="endq";return render()}
   S.confirm=null;const h=huntInfo();S.hunts[S.hunt]={...h,status:"ended",endedAt:Date.now()};render();
   try{await S.db.doc("hunts/"+S.hunt).update({status:"ended",endedAt:Date.now()})}catch(e){fail(e,"invite")}
+  postScore();
 }
 async function revealStop(cid){
   const t=myTeam();if(!amCaptain(t)||huntStatus()!=="live")return;
@@ -1301,6 +1308,45 @@ function questPhotoBox(t,c,s){
   ${d.bphoto?`<img class="preview" src="${d.bphoto}" alt="Your photo">`:""}
   <div class="row"><button class="btn sm" data-bsubmit="${c.id}" ${!d.bphoto||S.busy?"disabled":""}>Save photo</button></div>
   ${S.msg["b"+c.id]?`<p class="msg ${S.msg["b"+c.id][0]}">${esc(S.msg["b"+c.id][1])}</p>`:""}</div>`;
+}
+
+/* ---------- global leaderboard for player-built hunts ---------- */
+const localDay=ms=>{const d=new Date(ms);return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0")};
+function scoreDoc(h,team,score,solved){return {hunt:h.id,uid:h.owner,team:String(team||"Team").slice(0,40),museum:h.museum||"met",theme:h.theme||"mix",difficulty:h.difficulty,minutes:h.minutes,
+  score,solved,total:(h.stops||[]).length,day:localDay(h.startedAt),at:h.startedAt,updatedAt:Date.now()}}
+async function postScore(){
+  const h=huntInfo(),t=myTeam();if(!h||h.kind!=="quest"||h.owner!==uid()||!t)return;
+  const st=stats(t);try{await S.db.doc("scores/"+S.hunt).set(scoreDoc(h,t.name,st.score,st.solved))}catch(e){}
+}
+async function loadLeaders(){
+  const L=S.lb||(S.lb={range:"today",theme:"all"});L.loading=true;render();
+  try{let q=S.db.collection("scores");
+    if(L.range==="today")q=q.where("day","==",localDay(Date.now()));
+    else if(L.theme!=="all")q=q.where("theme","==",L.theme);
+    else q=q.orderBy("score","desc").limit(300);
+    const sn=await q.get();L.rows=sn.docs.map(d=>d.data());L.err=null}
+  catch(e){L.rows=[];L.err="Couldn't load the leaderboard. Check your connection and try again."}
+  L.loading=false;if(S.view==="leaders")render();
+}
+function viewLeaders(){
+  const L=S.lb||(S.lb={range:"today",theme:"all"}),M=museumOf()||MUSEUMS[0];
+  const now=Date.now();
+  const rows=(L.rows||[]).filter(r=>(r.museum||"met")===M.id&&(L.theme==="all"||r.theme===L.theme))
+    .sort((a,b)=>b.score-a.score||b.solved-a.solved||a.minutes-b.minutes||a.at-b.at).slice(0,50);
+  let html=`<section class="route"><h3>${esc(M.short)}</h3><h2>Leaderboard</h2><p class="small muted">Scores from hunts players build themselves. Ties go to whoever found more stops, then to the shorter hunt.</p></section>
+  <div class="seg lbrange" role="group" aria-label="Time range"><button data-lbrange="today" aria-pressed="${L.range==="today"}">Today</button><button data-lbrange="all" aria-pressed="${L.range==="all"}">All time</button></div>
+  <div class="lens" role="group" aria-label="Tour"><button type="button" class="len" data-lbtheme="all" aria-pressed="${L.theme==="all"}">All tours</button>${THEMES.map(t=>`<button type="button" class="len" data-lbtheme="${t.id}" aria-pressed="${L.theme===t.id}">${esc(t.name)}</button>`).join("")}</div>`;
+  if(L.loading&&!L.rows)return html+`<div class="empty"><b>Loading…</b></div>`;
+  if(L.err)return html+`<div class="banner err">${esc(L.err)}</div>`;
+  const tname=L.theme==="all"?"":` for ${themeById(L.theme).name}`;
+  if(!rows.length)return html+`<div class="empty"><b>No scores ${L.range==="today"?"today":"yet"}${esc(tname)}</b>Build a hunt from the <a href="#">Hunts</a> page and your score shows up here as you play.</div>`;
+  html+=`<div class="lb">`;
+  rows.forEach((r,i)=>{const mine=r.uid===uid(),live=r.at+r.minutes*60000>now&&r.day===localDay(now);
+    html+=`<div class="lrow ${mine?"me":""}"><span class="rank">${i+1}</span>
+    <div class="lname"><b>${esc(r.team)}${mine?' <span class="small muted" style="font-family:var(--sans);font-weight:500">(you)</span>':""}</b>
+    <div class="sub"><span>${esc(themeById(r.theme).name)}</span><span>${esc((DIFF[r.difficulty]||DIFF.medium).label)} · ${esc(fmtMin(r.minutes))}</span><span>${r.solved}/${r.total} found</span>${L.range==="all"?`<span>${esc(fmtDate(r.day))}</span>`:""}${live?`<span class="chip ok">Playing now</span>`:""}</div></div>
+    <div class="score"><b>${r.score}</b><span>points</span></div></div>`});
+  return html+`</div>`;
 }
 
 /* ---------- boot ---------- */
