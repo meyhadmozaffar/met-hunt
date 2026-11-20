@@ -214,6 +214,13 @@ button.huntcard{font:inherit;text-align:left;cursor:pointer;width:100%}
 .banner.ok{background:var(--ok-bg);color:var(--ok);border-color:transparent}
 .banner.ok a{color:inherit}
 @media (max-width:520px){.opts{grid-template-columns:1fr}.opt{flex-direction:row;align-items:baseline;gap:10px}.opt b{min-width:64px}}
+.tours{display:flex;flex-direction:column}
+.tourgrid{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
+.tour{display:flex;flex-direction:column;gap:4px;text-align:left;padding:14px;border:1px solid var(--line);border-radius:4px;background:var(--raised);color:var(--fg);font:inherit;cursor:pointer}
+.tour b{font-family:var(--serif);font-size:17px}.tour span{font-size:13px;line-height:1.35;color:var(--muted)}
+.tour .tmeta{margin-top:auto;padding-top:6px;font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--crimson-ink)}
+.tour[aria-pressed="true"]{border-color:var(--crimson);box-shadow:inset 0 0 0 1px var(--crimson)}
+.cimg{width:100%;max-height:260px;object-fit:contain;background:var(--surface);border-radius:3px;display:block;margin-bottom:10px}
 .check{display:flex;gap:10px;align-items:flex-start;font-size:14px;padding:10px 12px;background:var(--surface);border-radius:3px;cursor:pointer}
 .check input{width:18px;height:18px;margin:1px 0 0;accent-color:var(--crimson);flex:none}
 .check b{color:var(--crimson-ink)}
@@ -242,7 +249,7 @@ footer .wrap{padding-block:18px 28px;font-size:12px;color:var(--muted)}
 <main><div class="wrap" id="main">
   <div class="empty"><b>Loading…</b></div>
 </div></main>
-<footer><div class="wrap">A fan-made game, not produced by or affiliated with The Metropolitan Museum of Art. Galleries change: check that objects are on view at metmuseum.org before your event. Be gentle in the galleries: no running, and follow the museum's photography rules.</div></footer>
+<footer><div class="wrap">A fan-made game, not produced by or affiliated with The Metropolitan Museum of Art. Galleries change: check that objects are on view at metmuseum.org before your event. Be gentle in the galleries: no running, and follow the museum's photography rules. Object details and images come from The Met's Open Access collection data.</div></footer>
 
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
@@ -339,7 +346,7 @@ function render(){
     if(huntStatus()==="ended"&&isQuest()&&S.loaded.teams&&S.loaded.subs&&myTeam())html+=questSummary();
     else if(huntStatus()==="ended"&&!isQuest())html+=`<div class="banner">This hunt has ended. The leaderboard shows the final results.</div>`;
     else if(huntStatus()==="upcoming")html+=`<div class="banner">This hunt hasn't started yet. Join your team now; answers open when the organizer starts the hunt.</div>`;
-    if(!(S.loaded.teams&&S.loaded.subs))html+=`<div class="empty"><b>Loading teams…</b>Fetching the latest scores.</div>`;
+    if(!(S.loaded.teams&&S.loaded.subs)||(isQuest()&&!S.stopsReady))html+=`<div class="empty"><b>Loading…</b>Fetching your hunt.</div>`;
     else html+=({hunt:viewHunt,board:viewBoard,team:viewTeam,judge:isAdmin()?viewJudge:viewHunt}[S.tab]||viewHunt)();
   }
   m.innerHTML=html;tick();
@@ -414,7 +421,7 @@ function viewHunt(){
   return html+`</ol>`;
 }
 function clueBody(t,c,s,n){
-  let html=`<p class="riddle">${esc(c.riddle)}</p>${c.q?`<p class="q">${esc(c.q)}</p>`:""}<div class="hints">`;
+  let html=`${isQuest()&&diffKey()==="easy"&&c.img?`<img class="cimg" src="${esc(c.img)}" alt="Photo of ${esc(c.title)}" loading="lazy">`:""}<p class="riddle">${esc(c.riddle)}</p>${c.q?`<p class="q">${esc(c.q)}</p>`:""}<div class="hints">`;
   const HL=clueHints(c);HL.forEach(([lb,hTxt],i)=>{if(i<n)html+=`<p class="hint"><b>${esc(lb)}</b>${esc(hTxt)}</p>`});
   const done=s&&s.status==="correct";
   if(n<HL.length&&!done&&!(s&&s.status==="skipped")&&!amCaptain(t)){html+=`<p class="small muted">Need a hint? Only your captain${captainOf(t)?`, ${esc(captainOf(t))},`:""} can use hints.</p>`}
@@ -423,8 +430,9 @@ function clueBody(t,c,s,n){
     html+=`<div class="row"><button class="btn ghost sm" data-hint="${c.id}" ${S.writeBlocked?"disabled":""}>${conf?`Tap again to use it (−${hintCosts()[n]} pts)`:`${hintLabel(n)} · −${hintCosts()[n]} pts`}</button>${conf?`<button class="btn ghost sm" data-cancelhint="1">Cancel</button>`:""}</div>`;
   }
   html+=`</div>`;
-  if(done)return html+`<p class="result msg ok">Solved for ${s.points} points with ${describe(s)}.</p>`+bonusPhotoBox(t,c,s);
-  if(s&&s.status==="skipped")return html+`<p class="result msg">Skipped. The answer was <b>${esc(answerOf(c))}</b>.</p>`;
+  const more=c.url?` <a href="${esc(c.url)}" target="_blank" rel="noopener">About this work</a>`:"";
+  if(done)return html+`<p class="result msg ok">Solved for ${s.points} points with ${describe(s)}.${more}</p>`+bonusPhotoBox(t,c,s);
+  if(s&&s.status==="skipped")return html+`<p class="result msg">Skipped. The answer was <b>${esc(answerOf(c))}</b>.${more}</p>`;
   if(s&&s.status==="pending")html+=`<p class="msg pend">${s.type==="photo"?`Your ${s.teamPhoto?"team photo":"photo"} is`:`Your answer (${describe(s)}) is`} waiting for the judge. You can send a different one below.</p>`;
   if(s&&s.status==="rejected")html+=`<p class="msg bad">The judge didn't accept ${describe(s)}. Look again and resubmit.</p>`;
   if(huntStatus()!=="live")return html+`<p class="small muted">${huntStatus()==="ended"?"This hunt has ended.":"Answers open when the hunt starts."}</p>`;
@@ -767,6 +775,8 @@ document.addEventListener("click",e=>{
   else if(ds.bmin){S.build={...S.build,min:+ds.bmin};render()}
   else if(ds.bshuffle){S.build={...S.build,seed:Math.floor(Math.random()*1e9)};render()}
   else if(ds.bstart)startQuest();
+  else if(ds.btheme){S.build={...S.build,theme:ds.btheme};render()}
+  else if(ds.tour)pickTour(ds.tour);
   else if(ds.invite)inviteFriends();
   else if(ds.endquest)endQuest();
   else if(ds.reveal)revealStop(ds.reveal);
@@ -931,7 +941,7 @@ function viewHome(){
   let html=`<section class="route"><h3>${esc(M.short)} · <a href="#museum">Change museum</a></h3><h2>${first?`Welcome, ${esc(first)}`:"Welcome"}</h2><p class="start">Build a hunt for yourself and your friends, or join a group hunt an organizer has set up.</p></section>`;
   const now=Date.now(),go=Object.entries(S.plays||{}).filter(([k,p])=>p.kind==="quest"&&p.endsAt>now).sort((a,b)=>a[1].endsAt-b[1].endsAt);
   if(go.length)html+=`<section class="huntlist"><h3>In progress</h3>${go.map(([k,p])=>`<a class="huntcard" href="#h-${encodeURIComponent(k)}"><span class="hc-main"><b>${esc(p.huntName||"Your hunt")}</b><span class="small muted">${fmtClock(p.endsAt-now)} left</span></span><span class="chip ok">Resume</span></a>`).join("")}</section>`;
-  html+=builderPanel();
+  html+=toursPanel()+builderPanel();
   const L=Object.values(S.hunts).filter(h=>h.public&&(h.museum||"met")===M.id).sort((a,b)=>String(b.date||"").localeCompare(String(a.date||"")));
   const card=h=>`<a class="huntcard" href="#h-${encodeURIComponent(h.id)}"><span class="hc-main"><b>${esc(h.name||h.id)}</b><span class="small muted">${esc(fmtDate(h.date))}${h.place?` · ${esc(h.place)}`:""}</span></span><span class="chip ${h.status==="live"?"ok":h.status==="ended"?"":"pend"}">${STATUS_LABEL[h.status||"upcoming"]}</span></a>`;
   for(const [st,label] of [["live","Group hunts happening now"],["upcoming","Upcoming group hunts"],["ended","Past group hunts"]]){const g=L.filter(h=>(h.status||"upcoming")===st);if(g.length)html+=`<section class="huntlist"><h3>${label}</h3>${g.map(card).join("")}</section>`}
@@ -941,6 +951,7 @@ function viewHome(){
 /* ---------- profile ---------- */
 async function loadProfile(){
   if(!S.user)return;S.prof={loading:true};render();
+  await loadStops();
   try{
     const ps=await S.db.collection("users/"+uid()+"/plays").get();const plays=[];
     for(const d of ps.docs){const p=d.data();const hid=p.hunt||d.id;
@@ -1104,18 +1115,48 @@ const POOL={
   e1:["C19",2,65,-65,1],b5:["C19",2,70,-70,1],a7:["C19",2,75,-85,2],c3:["C19",2,75,-85,1],d9:["C19",2,80,-90,3],
   b6:["ISL",2,20,-50,1],c4:["ISL",2,20,-55,2],d10:["ISL",2,25,-65,2],a8:["ISL",2,25,-70,2],e2:["ISL",2,25,-75,3],
   d7:["ASIA",2,15,40,1],e9:["ASIA",2,15,45,1],b3:["ASIA",2,20,60,2],a5:["ASIA",2,30,70,1],c1:["ASIA",2,45,95,1]};
+/* Themes for the hand-written stops; the downloaded stops carry their own. */
+const TH={
+  hl:"w0 a3 a1 a2 a9 a10 a7 a6 a8 a5 b9 b5 b4 b6 b3 b2 c3 c2 c4 c1 d8 d6 d7 d2 d9 e1 e3 e10 e7 e5 e4 e2",
+  date:"a5 b2 a8 b6 a7 c3 b9 c1 a6 w0",
+  family:"a2 b10 e6 c8 d4 a4 b2 c10 d2 a10 b1 e7 e1 e8 d6",
+  myth:"w0 a9 d1 b3 e9 d7 d3",
+  ancient:"a4 b2 c10 d6 e8 a9 b7 c5 d1",
+  impress:"a7 b5 c3 d9 e1"};
+const THEME_OF={};Object.entries(TH).forEach(([t,ids])=>ids.split(" ").forEach(id=>(THEME_OF[id]=THEME_OF[id]||[]).push(t)));
+const THEMES=[
+  {id:"mix",name:"A bit of everything",blurb:"Stops from all over the museum."},
+  {id:"hl",name:"Greatest hits",blurb:"The Met's most famous works.",min:90,diff:"easy"},
+  {id:"date",name:"Date night",blurb:"Love stories, beautiful rooms and plenty to talk about.",min:90,diff:"medium"},
+  {id:"family",name:"Family adventure",blurb:"Knights, mummies and animals for young explorers.",min:60,diff:"easy"},
+  {id:"myth",name:"Gods and monsters",blurb:"Myths and legends from around the world.",min:60,diff:"medium"},
+  {id:"ancient",name:"Ancient worlds",blurb:"Egypt, Greece, Rome and the Near East.",min:90,diff:"medium"},
+  {id:"impress",name:"Impressionists",blurb:"Monet, Van Gogh, Degas and friends.",min:60,diff:"easy"},
+  {id:"world",name:"Around the world",blurb:"As many different collections as you can fit.",min:120,diff:"hard",spread:3},
+  {id:"lunch",name:"Lunch break",blurb:"Famous works close together.",min:30,diff:"easy",pool:"hl"}];
+const themeById=id=>THEMES.find(t=>t.id===id)||THEMES[0];
+let STOPS_P=null;
+/* The full stop list (thousands of objects from the Met's collection data) loads after sign-in. */
+function loadStops(){
+  if(!STOPS_P)STOPS_P=fetch("data/met-stops.json").then(r=>r.ok?r.json():Promise.reject(new Error(r.status))).then(d=>{
+    key();try{Object.assign(KEY,JSON.parse(decodeURIComponent(escape(atob(String(d.k).split("").reverse().join(""))))))}catch(e){}
+    (d.clues||[]).forEach(c=>{if(clueById[c.id])return;clueById[c.id]=c;POOL[c.id]=c.pos;THEME_OF[c.id]=c.th||[]});
+    S.stopsReady=true;S.stopsV=d.v;S.plan=null;render()}).catch(()=>{S.stopsReady=true;STOPS_P=null;render()});
+  return STOPS_P;
+}
 const walkMin=(a,b)=>(Math.abs(a.x-b.x)+Math.abs(a.y-b.y))/45+(a.f!==b.f?2.5:0);
 function rng(seed){let s=(seed>>>0)||1;return()=>{s^=s<<13;s>>>=0;s^=s>>>17;s^=s<<5;s>>>=0;return s/4294967296}}
 /* Greedy walking tour from the Great Hall: each step takes the cheapest next stop (walk + time at the object),
    nudged toward the chosen difficulty and away from repeating a department, until the time budget is used. */
-function buildQuest(diff,minutes,seed){
-  const D=DIFF[diff]||DIFF.medium,R=rng(seed),budget=minutes*0.9;
-  const pool=Object.entries(POOL).map(([id,[d,f,x,y,l]])=>({id,d,f,x,y,l})).filter(p=>p.l in D.pref&&clueById[p.id]);
-  let at={x:0,y:0,f:1},used=0;const pick=[],seen=new Set(),depts={};
+function buildQuest(diff,minutes,seed,theme,seen){
+  const D=DIFF[diff]||DIFF.medium,R=rng(seed),budget=minutes*0.9,T=themeById(theme),want=T.pool||(T.id==="mix"||T.id==="world"?null:T.id),spread=6*(T.spread||1);
+  seen=seen||new Set();
+  const pool=Object.entries(POOL).map(([id,[d,f,x,y,l]])=>({id,d,f,x,y,l})).filter(p=>p.l in D.pref&&clueById[p.id]&&(!want||(THEME_OF[p.id]||[]).includes(want)));
+  let at={x:0,y:0,f:1},used=0;const pick=[],got=new Set(),depts={};
   for(;;){let best=null;
-    for(const p of pool){if(seen.has(p.id))continue;const cost=walkMin(at,p)+D.dwell;if(used+cost>budget)continue;
-      const score=cost+D.pref[p.l]+(depts[p.d]||0)*6+R()*5;if(!best||score<best.score)best={p,cost,score}}
-    if(!best)break;pick.push(best.p.id);seen.add(best.p.id);used+=best.cost;at=best.p;depts[best.p.d]=(depts[best.p.d]||0)+1}
+    for(const p of pool){if(got.has(p.id))continue;const cost=walkMin(at,p)+D.dwell;if(used+cost>budget)continue;
+      const score=cost+D.pref[p.l]+(depts[p.d]||0)*spread+(seen.has(p.id)?12:0)+R()*5;if(!best||score<best.score)best={p,cost,score}}
+    if(!best)break;pick.push(best.p.id);got.add(best.p.id);used+=best.cost;at=best.p;depts[best.p.d]=(depts[best.p.d]||0)+1}
   return {stops:pick,est:Math.round(used),floors:[...new Set(pick.map(id=>POOL[id][1]))].sort(),depts:[...new Set(pick.map(id=>DEPT[POOL[id][0]]))]};
 }
 const fmtMin=m=>m<60?m+" min":(m%60?`${Math.floor(m/60)} hr ${m%60} min`:`${m/60} hr${m>60?"s":""}`);
@@ -1131,7 +1172,7 @@ function clueHints(c){const d=diffKey();if(d==="easy")return [["Directions",c.hi
   if(d==="hard")return [["Where to go",c.where+". "+c.hints[0]],["Gallery",c.hints[1]]];
   return [["Directions",c.hints[0]],["Gallery",c.hints[1]]]}
 function hintLabel(n){return n?"Reveal gallery number":diffKey()==="hard"?"Reveal where to go":"Reveal directions"}
-function questRoute(h){const id="q-"+h.id,v=(h.stops||[]).join();
+function questRoute(h){const id="q-"+h.id,v=(h.stops||[]).join()+(S.stopsReady?"+":"");
   if(!routeById[id]||routeById[id]._v!==v)routeById[id]={id,name:h.name||"Your hunt",color:"#E4002B",quest:true,_v:v,clues:(h.stops||[]).map(s=>clueById[s]).filter(Boolean)};
   return routeById[id]}
 const museumOf=()=>MUSEUMS.find(m=>m.id===(S.udoc&&S.udoc.museum))||null;
@@ -1157,36 +1198,48 @@ async function chooseMuseum(id){
   try{await S.db.doc("users/"+uid()).set({museum:id},{merge:true})}catch(e){}
 }
 
+const seenSet=()=>new Set((S.udoc&&S.udoc.seen)||[]);
+function currentPlan(){const B=S.build,k=[B.diff,B.min,B.seed,B.theme,S.stopsReady?1:0,((S.udoc&&S.udoc.seen)||[]).length].join("|");
+  if(!S.plan||S.plan.k!==k)S.plan={k,...buildQuest(B.diff,B.min,B.seed,B.theme,seenSet())};return S.plan}
+function toursPanel(){
+  return `<section class="tours"><h3>Suggested tours</h3><div class="tourgrid">${THEMES.filter(t=>t.id!=="mix").map(t=>`<button type="button" class="tour" data-tour="${t.id}" aria-pressed="${S.build&&S.build.theme===t.id}"><b>${esc(t.name)}</b><span>${esc(t.blurb)}</span><span class="tmeta">${esc(DIFF[t.diff].label)} · ${esc(fmtMin(t.min))}</span></button>`).join("")}</div></section>`;
+}
+function pickTour(id){const t=themeById(id);S.build={...(S.build||{}),theme:t.id,diff:t.diff||S.build.diff,min:t.min||S.build.min,seed:Math.floor(Math.random()*1e9)};render();
+  const el=document.getElementById("bTitle");if(el)el.scrollIntoView({behavior:"smooth",block:"start"})}
 function builderPanel(){
-  const B=S.build||(S.build={diff:"medium",min:60,seed:Math.floor(Math.random()*1e9)});
-  const plan=buildQuest(B.diff,B.min,B.seed);
+  const B=S.build||(S.build={diff:"medium",min:60,theme:"mix",seed:Math.floor(Math.random()*1e9)});if(!B.theme)B.theme="mix";
+  if(!S.stopsReady)return `<section class="panel builder"><h3 id="bTitle">Build your own hunt</h3><p class="small muted">Loading the museum's objects…</p></section>`;
+  const plan=currentPlan();
   return `<section class="panel builder" aria-labelledby="bTitle"><h3 id="bTitle">Build your own hunt</h3>
+  <div><p class="lbl">Theme</p><div class="lens" role="group" aria-label="Theme">${THEMES.map(t=>`<button type="button" class="len" data-btheme="${t.id}" aria-pressed="${B.theme===t.id}">${esc(t.name)}</button>`).join("")}</div></div>
   <div><p class="lbl">Difficulty</p><div class="opts" role="group" aria-label="Difficulty">${Object.entries(DIFF).map(([k,d])=>`<button type="button" class="opt" data-bdiff="${k}" aria-pressed="${B.diff===k}"><b>${d.label}</b><span>${esc(d.blurb)}</span></button>`).join("")}</div></div>
   <div><p class="lbl">Length</p><div class="lens" role="group" aria-label="Length">${MINUTES.map(m=>`<button type="button" class="len" data-bmin="${m}" aria-pressed="${B.min===m}">${fmtMin(m)}</button>`).join("")}</div></div>
   <div class="plan"><div class="hstats"><span><b>${plan.stops.length}</b> stops</span><span><b>${plan.stops.length*BASE}</b> points to win</span><span>Floor${plan.floors.length>1?"s":""} <b>${plan.floors.join(" and ")}</b></span></div>
-  <p class="small muted">About ${plan.est} minutes of walking and searching, leaving time to look around. Collections: ${esc(plan.depts.join(", "))}.</p></div>
+  <p class="small muted">${plan.stops.length?`About ${plan.est} minutes of walking and searching, leaving time to look around. Collections: ${esc(plan.depts.join(", "))}.`:"Nothing fits. Try a longer hunt or another difficulty."}</p></div>
   <div class="row"><button class="btn" data-bstart="1" ${S.busy||!plan.stops.length?"disabled":""}>Start the ${esc(fmtMin(B.min))} hunt</button><button class="btn ghost" data-bshuffle="1">Shuffle stops</button></div>
   <p class="small muted">Start in the Great Hall. The clock starts when you tap Start, and you can invite friends once you're in.</p>
   ${S.msg.build?`<p class="msg ${S.msg.build[0]}">${esc(S.msg.build[1])}</p>`:""}</section>`;
 }
 async function startQuest(){
-  const B=S.build;if(!B||S.busy)return;const plan=buildQuest(B.diff,B.min,B.seed);if(!plan.stops.length)return;
-  const now=Date.now(),id="q"+now.toString(36)+Math.random().toString(36).slice(2,6);
-  const name=`${DIFF[B.diff].label} hunt · ${fmtMin(B.min)}`;
+  const B=S.build;if(!B||S.busy)return;const plan=currentPlan();if(!plan.stops.length)return;
+  const now=Date.now(),id="q"+now.toString(36)+Math.random().toString(36).slice(2,6),T=themeById(B.theme);
+  const name=T.id==="mix"?`${DIFF[B.diff].label} hunt · ${fmtMin(B.min)}`:`${T.name} · ${fmtMin(B.min)}`;
   const h={kind:"quest",public:false,museum:(museumOf()||MUSEUMS[0]).id,owner:uid(),name,date:new Date(now).toISOString().slice(0,10),status:"live",
-    difficulty:B.diff,minutes:B.min,stops:plan.stops,est:plan.est,floors:plan.floors,startedAt:now,endsAt:now+B.min*60000,createdAt:now};
+    difficulty:B.diff,theme:T.id,minutes:B.min,stops:plan.stops,est:plan.est,floors:plan.floors,startedAt:now,endsAt:now+B.min*60000,createdAt:now};
   const me=playerName()||"Player";
   S.busy=true;S.msg.build=null;render();
   try{await S.db.doc("hunts/"+id).set(h);
     await S.db.doc(`hunts/${id}/teams/t1`).set({id:"t1",name:`${me.split(" ")[0]}'s team`,route:"q-"+id,createdAt:now,startedAt:now,hints:{},roster:[me],captainUid:uid(),members:[uid()]});
     await S.db.doc(`users/${uid()}/plays/${id}`).set({hunt:id,team:"t1",name:me,at:now,kind:"quest",huntName:name,endsAt:h.endsAt});
+    const seen=[...((S.udoc&&S.udoc.seen)||[]),...plan.stops].slice(-500);S.udoc={...(S.udoc||{}),seen};
+    S.db.doc("users/"+uid()).set({seen},{merge:true}).catch(()=>{});
     S.hunts[id]={id,...h};questRoute(S.hunts[id]);S.build={...B,seed:Math.floor(Math.random()*1e9)};S.busy=false;S.tab="hunt";location.hash="#h-"+id}
   catch(e){S.busy=false;S.msg.build=["bad","Couldn't start the hunt. Check your connection and try again."];render()}
 }
 
 function questView(t,r){
   const h=huntInfo(),st=stats(t),over=huntStatus()==="ended",owner=h.owner===uid();
-  let html=`<section class="route qhead" style="${cv(r)}"><span class="rbadge"><span class="dot"></span>${esc(DIFF[diffKey()].label)} · ${esc(fmtMin(h.minutes||0))} · Floor${(h.floors||[]).length>1?"s":""} ${esc((h.floors||[1]).join(" and "))}</span>
+  let html=`<section class="route qhead" style="${cv(r)}"><span class="rbadge"><span class="dot"></span>${h.theme&&h.theme!=="mix"?esc(themeById(h.theme).name)+" · ":""}${esc(DIFF[diffKey()].label)} · ${esc(fmtMin(h.minutes||0))} · Floor${(h.floors||[]).length>1?"s":""} ${esc((h.floors||[1]).join(" and "))}</span>
     <div class="qtop"><h2>${esc(t.name)}</h2><span class="qclock ${over?"done":""}" id="qclock" role="timer" aria-label="Time left">${over?"Finished":fmtClock(h.endsAt-Date.now())}</span></div>
     <div class="hstats"><span><b>${st.score}</b> points</span><span><b>${st.solved}/${r.clues.length}</b> found</span><span><b>${st.hints}</b> hint${st.hints===1?"":"s"}</span></div>
     ${over?"":`<p class="start"><b>Start:</b> the Great Hall, the main entrance on Fifth Avenue. Stops are listed in walking order.</p>`}
@@ -1258,8 +1311,8 @@ async function boot(){
   try{await S.auth.getRedirectResult()}catch(e){}
   if(S.auth.isSignInWithEmailLink(location.href)){const em=ls.get("mh_email");if(em)await finishEmailLink(em);else S.emailLinkPending=true}
   S.auth.onAuthStateChanged(u=>{S.user=u;S.authReady=true;S.owner=isAdmin();
-    (S.userUnsub||[]).forEach(f=>{try{f()}catch(e){}});S.userUnsub=[];S.udoc=null;S.plays={};
-    if(u){ensureUser(u);subscribeHunts();
+    (S.userUnsub||[]).forEach(f=>{try{f()}catch(e){}});S.userUnsub=[];S.udoc=null;S.plays={};S.myName=null;S.draft={};S.msg={};S.plan=null;
+    if(u){ensureUser(u);subscribeHunts();loadStops();
       S.userUnsub.push(S.db.doc("users/"+u.uid).onSnapshot(sn=>{S.udoc=sn.exists?(sn.data()||{}):{};render()},()=>{S.udoc={};render()}));
       S.userUnsub.push(S.db.collection("users/"+u.uid+"/plays").onSnapshot(sn=>{S.plays={};sn.docs.forEach(d=>{S.plays[d.id]=d.data()});if(S.view==="home")render()},()=>{}))}
     else{if(S.huntsUnsub){S.huntsUnsub();S.huntsUnsub=null}closeHunt();S.hunts={};S.prof=null}
